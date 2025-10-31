@@ -13,7 +13,8 @@ module.exports = function(sequelize, DataTypes) {
       references: {
         model: 'users',
         key: 'userID'
-      }
+      },
+      unique: "fk_creatorProfiles_users"
     },
     numberOfFollowers: {
       type: DataTypes.INTEGER,
@@ -21,16 +22,15 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: 0
     },
     verified: {
-      type: DataTypes.BOOLEAN,
+      type: DataTypes.CHAR(1),
       allowNull: true,
-      defaultValue: 0
+      defaultValue: "N"
     },
     bio: {
       type: DataTypes.TEXT,
       allowNull: true
     }
   }, {
-    sequelize,
     tableName: 'creatorprofiles',
     timestamps: true,
     indexes: [
@@ -44,6 +44,7 @@ module.exports = function(sequelize, DataTypes) {
       },
       {
         name: "userID",
+        unique: true,
         using: "BTREE",
         fields: [
           { name: "userID" },

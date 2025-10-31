@@ -1,7 +1,7 @@
 const Sequelize = require('sequelize');
 module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('recommendations', {
-    recommendationID: {
+  return sequelize.define('reports', {
+    reportID: {
       autoIncrement: true,
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -17,18 +17,35 @@ module.exports = function(sequelize, DataTypes) {
     },
     songID: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'songs',
         key: 'songID'
       }
     },
-    score: {
-      type: DataTypes.FLOAT,
+    podcastID: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'podcasts',
+        key: 'podcastID'
+      }
+    },
+    contentType: {
+      type: DataTypes.ENUM('s','p'),
       allowNull: false
+    },
+    reason: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    status: {
+      type: DataTypes.ENUM('pending','reviewed','resolved'),
+      allowNull: true,
+      defaultValue: "pending"
     }
   }, {
-    tableName: 'recommendations',
+    tableName: 'reports',
     timestamps: true,
     indexes: [
       {
@@ -36,7 +53,7 @@ module.exports = function(sequelize, DataTypes) {
         unique: true,
         using: "BTREE",
         fields: [
-          { name: "recommendationID" },
+          { name: "reportID" },
         ]
       },
       {
@@ -51,6 +68,13 @@ module.exports = function(sequelize, DataTypes) {
         using: "BTREE",
         fields: [
           { name: "songID" },
+        ]
+      },
+      {
+        name: "podcastID",
+        using: "BTREE",
+        fields: [
+          { name: "podcastID" },
         ]
       },
     ]

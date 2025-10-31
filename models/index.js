@@ -1,8 +1,7 @@
-import { Sequelize } from 'sequelize';
-import sequelize from '../config/database.js';
-import initModels from './init-models.js';
+const { Sequelize } = require('sequelize');
+const initModels = require('./init-models');
+const sequelize = require('../config/database');
 
 const models = initModels(sequelize);
 
-export { sequelize };
-export default models;
+module.exports = { sequelize, models };

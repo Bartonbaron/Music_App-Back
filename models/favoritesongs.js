@@ -1,7 +1,7 @@
 const Sequelize = require('sequelize');
 module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('favorites', {
-    favoriteID: {
+  return sequelize.define('favoritesongs', {
+    ID: {
       autoIncrement: true,
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -15,13 +15,13 @@ module.exports = function(sequelize, DataTypes) {
         key: 'userID'
       }
     },
-    contentType: {
-      type: DataTypes.ENUM('song','podcast','album','playlist'),
-      allowNull: false
-    },
-    contentID: {
+    songID: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: false,
+      references: {
+        model: 'songs',
+        key: 'songID'
+      }
     },
     addedAt: {
       type: DataTypes.DATE,
@@ -29,8 +29,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     }
   }, {
-    sequelize,
-    tableName: 'favorites',
+    tableName: 'favoritesongs',
     timestamps: false,
     indexes: [
       {
@@ -38,7 +37,7 @@ module.exports = function(sequelize, DataTypes) {
         unique: true,
         using: "BTREE",
         fields: [
-          { name: "favoriteID" },
+          { name: "ID" },
         ]
       },
       {
@@ -46,6 +45,13 @@ module.exports = function(sequelize, DataTypes) {
         using: "BTREE",
         fields: [
           { name: "userID" },
+        ]
+      },
+      {
+        name: "songID",
+        using: "BTREE",
+        fields: [
+          { name: "songID" },
         ]
       },
     ]

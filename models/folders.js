@@ -16,11 +16,10 @@ module.exports = function(sequelize, DataTypes) {
       }
     },
     folderName: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING(50),
       allowNull: false
     }
   }, {
-    sequelize,
     tableName: 'folders',
     timestamps: true,
     indexes: [
@@ -33,7 +32,7 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "userID",
+        name: "fk_folders_users",
         using: "BTREE",
         fields: [
           { name: "userID" },

@@ -13,10 +13,10 @@ module.exports = function(sequelize, DataTypes) {
       references: {
         model: 'users',
         key: 'userID'
-      }
+      },
+      unique: "fk_library_users"
     }
   }, {
-    sequelize,
     tableName: 'library',
     timestamps: true,
     indexes: [
@@ -30,6 +30,7 @@ module.exports = function(sequelize, DataTypes) {
       },
       {
         name: "userID",
+        unique: true,
         using: "BTREE",
         fields: [
           { name: "userID" },

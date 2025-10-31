@@ -1,7 +1,7 @@
 const Sequelize = require('sequelize');
 module.exports = function(sequelize, DataTypes) {
-  return sequelize.define('recommendations', {
-    recommendationID: {
+  return sequelize.define('favoritepodcasts', {
+    ID: {
       autoIncrement: true,
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -15,28 +15,29 @@ module.exports = function(sequelize, DataTypes) {
         key: 'userID'
       }
     },
-    songID: {
+    podcastID: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: 'songs',
-        key: 'songID'
+        model: 'podcasts',
+        key: 'podcastID'
       }
     },
-    score: {
-      type: DataTypes.FLOAT,
-      allowNull: false
+    addedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     }
   }, {
-    tableName: 'recommendations',
-    timestamps: true,
+    tableName: 'favoritepodcasts',
+    timestamps: false,
     indexes: [
       {
         name: "PRIMARY",
         unique: true,
         using: "BTREE",
         fields: [
-          { name: "recommendationID" },
+          { name: "ID" },
         ]
       },
       {
@@ -47,10 +48,10 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "songID",
+        name: "podcastID",
         using: "BTREE",
         fields: [
-          { name: "songID" },
+          { name: "podcastID" },
         ]
       },
     ]

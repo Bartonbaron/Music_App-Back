@@ -24,9 +24,8 @@ module.exports = function(sequelize, DataTypes) {
       }
     },
     status: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-      defaultValue: 1
+      type: DataTypes.CHAR(1),
+      allowNull: false
     },
     email: {
       type: DataTypes.STRING(100),
@@ -37,7 +36,6 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
-    sequelize,
     tableName: 'users',
     timestamps: true,
     indexes: [
@@ -50,7 +48,7 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "roleID",
+        name: "fk_users_roles",
         using: "BTREE",
         fields: [
           { name: "roleID" },

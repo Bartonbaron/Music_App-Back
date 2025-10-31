@@ -25,7 +25,6 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     }
   }, {
-    sequelize,
     tableName: 'libraryplaylists',
     timestamps: false,
     indexes: [

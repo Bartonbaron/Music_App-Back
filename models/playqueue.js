@@ -15,30 +15,27 @@ module.exports = function(sequelize, DataTypes) {
         key: 'userID'
       }
     },
-    contentType: {
-      type: DataTypes.ENUM('song','podcast'),
-      allowNull: false
-    },
-    contentID: {
+    songID: {
       type: DataTypes.INTEGER,
-      allowNull: false
+      allowNull: true,
+      references: {
+        model: 'songs',
+        key: 'songID'
+      }
+    },
+    podcastID: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'podcasts',
+        key: 'podcastID'
+      }
     },
     position: {
       type: DataTypes.INTEGER,
-      allowNull: false
-    },
-    isCurrent: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-      defaultValue: 0
-    },
-    addedAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-      defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
+      allowNull: true
     }
   }, {
-    sequelize,
     tableName: 'playqueue',
     timestamps: false,
     indexes: [
@@ -55,6 +52,20 @@ module.exports = function(sequelize, DataTypes) {
         using: "BTREE",
         fields: [
           { name: "userID" },
+        ]
+      },
+      {
+        name: "songID",
+        using: "BTREE",
+        fields: [
+          { name: "songID" },
+        ]
+      },
+      {
+        name: "podcastID",
+        using: "BTREE",
+        fields: [
+          { name: "podcastID" },
         ]
       },
     ]

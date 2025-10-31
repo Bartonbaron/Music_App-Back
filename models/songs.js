@@ -13,18 +13,10 @@ module.exports = function(sequelize, DataTypes) {
     },
     creatorID: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'creatorprofiles',
         key: 'creatorID'
-      }
-    },
-    genreID: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'genres',
-        key: 'genreID'
       }
     },
     albumID: {
@@ -35,13 +27,21 @@ module.exports = function(sequelize, DataTypes) {
         key: 'albumID'
       }
     },
+    genreID: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'genres',
+        key: 'genreID'
+      }
+    },
     fileURL: {
       type: DataTypes.STRING(255),
       allowNull: false
     },
     duration: {
       type: DataTypes.INTEGER,
-      allowNull: true
+      allowNull: false
     },
     streamCount: {
       type: DataTypes.INTEGER,
@@ -58,7 +58,6 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
-    sequelize,
     tableName: 'songs',
     timestamps: true,
     indexes: [
@@ -71,24 +70,24 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "creatorID",
+        name: "fk_songs_creators",
         using: "BTREE",
         fields: [
           { name: "creatorID" },
         ]
       },
       {
-        name: "genreID",
-        using: "BTREE",
-        fields: [
-          { name: "genreID" },
-        ]
-      },
-      {
-        name: "albumID",
+        name: "fk_songs_albums",
         using: "BTREE",
         fields: [
           { name: "albumID" },
+        ]
+      },
+      {
+        name: "fk_songs_genres",
+        using: "BTREE",
+        fields: [
+          { name: "genreID" },
         ]
       },
     ]

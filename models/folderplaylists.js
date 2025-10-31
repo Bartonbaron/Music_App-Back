@@ -20,7 +20,6 @@ module.exports = function(sequelize, DataTypes) {
       }
     }
   }, {
-    sequelize,
     tableName: 'folderplaylists',
     timestamps: false,
     indexes: [

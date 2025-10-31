@@ -8,7 +8,7 @@ module.exports = function(sequelize, DataTypes) {
       primaryKey: true
     },
     playlistName: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING(50),
       allowNull: false
     },
     userID: {
@@ -33,17 +33,16 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     },
     visibility: {
-      type: DataTypes.ENUM('public','private','unlisted'),
+      type: DataTypes.CHAR(1),
       allowNull: true,
-      defaultValue: "private"
+      defaultValue: "P"
     },
     isCollaborative: {
-      type: DataTypes.BOOLEAN,
+      type: DataTypes.CHAR(1),
       allowNull: true,
-      defaultValue: 0
+      defaultValue: "N"
     }
   }, {
-    sequelize,
     tableName: 'playlists',
     timestamps: true,
     indexes: [
@@ -56,7 +55,7 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "userID",
+        name: "fk_playlists_users",
         using: "BTREE",
         fields: [
           { name: "userID" },

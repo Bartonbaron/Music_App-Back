@@ -8,39 +8,34 @@ module.exports = function(sequelize, DataTypes) {
       primaryKey: true
     },
     albumName: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING(50),
       allowNull: false
     },
     creatorID: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'creatorprofiles',
         key: 'creatorID'
       }
     },
-    genreID: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'genres',
-        key: 'genreID'
-      }
+    coverURL: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    genre: {
+      type: DataTypes.STRING(30),
+      allowNull: true
     },
     description: {
       type: DataTypes.TEXT,
       allowNull: true
     },
-    coverURL: {
-      type: DataTypes.STRING(255),
-      allowNull: true
-    },
     releaseDate: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.DATE,
       allowNull: true
     }
   }, {
-    sequelize,
     tableName: 'albums',
     timestamps: true,
     indexes: [
@@ -53,17 +48,10 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "creatorID",
+        name: "fk_albums_creators",
         using: "BTREE",
         fields: [
           { name: "creatorID" },
-        ]
-      },
-      {
-        name: "genreID",
-        using: "BTREE",
-        fields: [
-          { name: "genreID" },
         ]
       },
     ]

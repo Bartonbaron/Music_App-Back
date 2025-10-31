@@ -13,7 +13,7 @@ module.exports = function(sequelize, DataTypes) {
     },
     creatorID: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'creatorprofiles',
         key: 'creatorID'
@@ -39,14 +39,14 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.INTEGER,
       allowNull: true
     },
-    coverURL: {
-      type: DataTypes.STRING(255),
+    releaseDate: {
+      type: DataTypes.DATE,
       allowNull: true
     },
     visibility: {
-      type: DataTypes.ENUM('public','private','unlisted'),
+      type: DataTypes.CHAR(1),
       allowNull: true,
-      defaultValue: "public"
+      defaultValue: "P"
     },
     likeCount: {
       type: DataTypes.INTEGER,
@@ -58,12 +58,11 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true,
       defaultValue: 0
     },
-    releaseDate: {
-      type: DataTypes.DATEONLY,
+    coverURL: {
+      type: DataTypes.STRING(255),
       allowNull: true
     }
   }, {
-    sequelize,
     tableName: 'podcasts',
     timestamps: true,
     indexes: [
@@ -76,14 +75,14 @@ module.exports = function(sequelize, DataTypes) {
         ]
       },
       {
-        name: "creatorID",
+        name: "fk_podcasts_creators",
         using: "BTREE",
         fields: [
           { name: "creatorID" },
         ]
       },
       {
-        name: "topicID",
+        name: "fk_podcasts_topics",
         using: "BTREE",
         fields: [
           { name: "topicID" },
