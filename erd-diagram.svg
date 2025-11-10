@@ -103,7 +103,7 @@
 <text text-anchor="start" x="170.3595" y="-1752.8331" font-family="Times,serif" font-style="italic" text-decoration="underline" font-size="10.00" fill="#000000">roleID</text>
 <text text-anchor="start" x="196.4545" y="-1752.8331" font-family="Times,serif" font-size="10.00" fill="#000000">: NUMBER</text>
 <polygon fill="none" stroke="#000000" points="165.3595,-1721.8331 165.3595,-1743.8331 275.3595,-1743.8331 275.3595,-1721.8331 165.3595,-1721.8331"/>
-<text text-anchor="start" x="170.3595" y="-1729.8331" font-family="Times,serif" font-size="10.00" fill="#000000">status: STRING</text>
+<text text-anchor="start" x="170.3595" y="-1729.8331" font-family="Times,serif" font-size="10.00" fill="#000000">status: BOOLEAN</text>
 <polygon fill="none" stroke="#000000" points="165.3595,-1699.8331 165.3595,-1721.8331 275.3595,-1721.8331 275.3595,-1699.8331 165.3595,-1699.8331"/>
 <text text-anchor="start" x="170.3595" y="-1707.8331" font-family="Times,serif" font-size="10.00" fill="#000000">email: STRING</text>
 <polygon fill="none" stroke="#000000" points="165.3595,-1677.8331 165.3595,-1699.8331 275.3595,-1699.8331 275.3595,-1677.8331 165.3595,-1677.8331"/>

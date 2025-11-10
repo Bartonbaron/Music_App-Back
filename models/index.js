@@ -4,4 +4,7 @@ const sequelize = require('../config/database');
 
 const models = initModels(sequelize);
 
-module.exports = { sequelize, models };
+module.exports = {
+    sequelize,
+    models
+};

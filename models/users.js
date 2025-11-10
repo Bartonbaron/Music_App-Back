@@ -24,8 +24,9 @@ module.exports = function(sequelize, DataTypes) {
       }
     },
     status: {
-      type: DataTypes.CHAR(1),
-      allowNull: false
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: 1
     },
     email: {
       type: DataTypes.STRING(100),
