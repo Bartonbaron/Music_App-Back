@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const {models} = require('../models');
 require('dotenv').config();
 
 const authenticateToken = (req, res, next) => {
@@ -20,5 +21,26 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-module.exports = { authenticateToken };
+const requireAdmin = async (req, res, next) => {
+    try {
+        const user = await models.users.findByPk(req.user.id, {
+            include: { model: models.roles, as: "role" },
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        if (user.role.roleName !== "Administrator") {
+            return res.status(403).json({ message: "Admin role required" });
+        }
+
+        next();
+    } catch (error) {
+        console.error("Admin check error:", error);
+        res.status(500).json({ message: "Server error while checking admin role" });
+    }
+};
+
+module.exports = { authenticateToken, requireAdmin };
 

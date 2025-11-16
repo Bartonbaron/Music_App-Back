@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { models } = require('../models');
 const User = models.users;
+const Role = models.roles;
 
 // Walidacja hasła: min. 8 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny
 const validatePassword = (password) => {
@@ -31,11 +32,14 @@ const registerUser = async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
+
+        const userRole = await Role.findOne({ where: { roleName: 'User' } });
+
         const newUser = await User.create({
             userName,
             password: hashedPassword,
             email,
-            roleID: 1,         // domyślnie zwykły użytkownik
+            roleID: userRole.roleID,
             status: 1          // aktywne konto
         });
 
@@ -59,6 +63,11 @@ const loginUser = async (req, res) => {
         const user = await User.findOne({ where: { userName } });
         if (!user) {
             return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        // blokada logowania
+        if (user.status === false) {
+            return res.status(403).json({ message: 'Account is deactivated' });
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -158,10 +167,222 @@ const changePassword = async (req, res) => {
     }
 };
 
+const deactivateAccount = async (req, res) => {
+    try {
+        const userId = req.user.id; // pobrane z tokena JWT
+
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if (user.status === false) {
+            return res.status(400).json({ message: 'Account is already deactivated' });
+        }
+
+        user.status = false; // dezaktywacja
+        await user.save();
+
+        res.json({
+            message: 'Account deactivated successfully',
+            userID: user.userID,
+            status: user.status
+        });
+    } catch (error) {
+        console.error('Deactivate account error:', error);
+        res.status(500).json({ message: 'Server error during account deactivation' });
+    }
+};
+
+const reactivateAccount = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if (user.status === true) {
+            return res.status(400).json({ message: 'Account is already active' });
+        }
+
+        user.status = true;
+        await user.save();
+
+        res.json({ message: 'Account reactivated successfully!' });
+    } catch (error) {
+        console.error('Account reactivation error:', error);
+        return res.status(500).json({ message: 'Server error during account reactivation' });
+    }
+};
+
+const getProfile = async (req, res) => {
+    try {
+        const userId = req.user.id; // ID z tokena JWT
+
+        const user = await User.findByPk(userId, {
+            attributes: ['userID', 'userName', 'email', 'profilePicURL', 'status', 'createdAt'],
+            include: [
+                {
+                    model: Role,
+                    as: "role",
+                    attributes: ['roleID', 'roleName']
+                }
+            ]
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        res.json({
+            message: 'User profile fetched successfully',
+            user
+        });
+
+    } catch (error) {
+        console.error('Profile fetch error:', error);
+        res.status(500).json({ message: 'Server error during profile fetch' });
+    }
+};
+
+const promoteToCreator = async (req, res) => {
+    try {
+        const userId = req.params.id;
+
+        const user = await models.users.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const creatorRole = await models.roles.findOne({
+            where: { roleName: "Creator" }
+        });
+
+        if (!creatorRole) {
+            return res.status(500).json({ message: "Role 'Creator' not found in database" });
+        }
+
+        user.roleID = creatorRole.roleID;
+        await user.save();
+
+        res.json({
+            message: "User promoted to Creator successfully",
+            user: {
+                id: user.userID,
+                userName: user.userName,
+                role: "Creator"
+            }
+        });
+
+    } catch (error) {
+        console.error("Promote user error:", error);
+        res.status(500).json({ message: "Server error during promotion" });
+    }
+};
+
+const demoteCreator = async (req, res) => {
+    try {
+        const userId = req.params.id;
+
+        const user = await models.users.findByPk(userId, {
+            include: { model: models.roles, as: 'role' }
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Sprawdzenie czy user jest Twórcą
+        if (user.role.roleName !== 'Creator') {
+            return res.status(400).json({
+                message: 'User is not a Creator'
+            });
+        }
+
+        // Pobierz rolę "User"
+        const userRole = await models.roles.findOne({
+            where: { roleName: 'User' }
+        });
+
+        if (!userRole) {
+            return res.status(500).json({
+                message: 'Role "User" not found in database'
+            });
+        }
+
+        // Aktualizacja roli
+        user.roleID = userRole.roleID;
+        await user.save();
+
+        return res.json({
+            message: 'User demoted from Creator to User successfully',
+            userID: user.userID
+        });
+
+    } catch (err) {
+        console.error("Demote user error:", err);
+        res.status(500).json({ message: "Server error during demote" });
+    }
+};
+
+const getAllCreators = async (req, res) => {
+    try {
+        const creators = await models.users.findAll({
+            include: {
+                model: models.roles,
+                as: 'role',
+                where: { roleName: 'Creator' }
+            },
+            attributes: ['userID', 'userName', 'email', 'status', 'createdAt']
+        });
+
+        res.json({
+            count: creators.length,
+            creators
+        });
+
+    } catch (error) {
+        console.error("Get creators error:", error);
+        res.status(500).json({ message: "Server error while fetching creators" });
+    }
+};
+
+const getAllUsers = async (req, res) => {
+    try {
+        const allUsers = await models.users.findAll({
+            include: {
+                model: models.roles,
+                as: 'role',
+                attributes: ['roleName']
+            },
+            attributes: ['userID', 'userName', 'email', 'status', 'createdAt']
+        });
+
+        res.json({
+            count: allUsers.length,
+            users: allUsers
+        });
+
+    } catch (error) {
+        console.error("Get all users error:", error);
+        res.status(500).json({ message: "Server error while fetching users" });
+    }
+};
+
+
 module.exports = {
     registerUser,
     loginUser,
     protectedRoute,
     updateProfile,
-    changePassword
+    changePassword,
+    deactivateAccount,
+    reactivateAccount,
+    getProfile,
+    promoteToCreator,
+    demoteCreator,
+    getAllUsers,
+    getAllCreators
 };
