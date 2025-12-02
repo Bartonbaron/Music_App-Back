@@ -63,6 +63,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
+    sequelize,
     tableName: 'podcasts',
     timestamps: true,
     indexes: [

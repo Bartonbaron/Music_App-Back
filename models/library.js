@@ -17,6 +17,7 @@ module.exports = function(sequelize, DataTypes) {
       unique: "fk_library_users"
     }
   }, {
+    sequelize,
     tableName: 'library',
     timestamps: true,
     indexes: [

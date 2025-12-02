@@ -45,6 +45,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: "pending"
     }
   }, {
+    sequelize,
     tableName: 'reports',
     timestamps: true,
     indexes: [

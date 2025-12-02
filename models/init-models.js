@@ -23,7 +23,6 @@ var _roles = require("./roles");
 var _songs = require("./songs");
 var _topics = require("./topics");
 var _users = require("./users");
-var _usersettings = require("./usersettings");
 
 function initModels(sequelize) {
   var albums = _albums(sequelize, DataTypes);
@@ -50,7 +49,6 @@ function initModels(sequelize) {
   var songs = _songs(sequelize, DataTypes);
   var topics = _topics(sequelize, DataTypes);
   var users = _users(sequelize, DataTypes);
-  var usersettings = _usersettings(sequelize, DataTypes);
 
   albums.belongsToMany(library, { as: 'libraryID_libraries', through: libraryalbums, foreignKey: "albumID", otherKey: "libraryID" });
   folders.belongsToMany(playlists, { as: 'playlistID_playlists', through: folderplaylists, foreignKey: "folderID", otherKey: "playlistID" });
@@ -144,8 +142,6 @@ function initModels(sequelize) {
   users.hasMany(recommendations, { as: "recommendations", foreignKey: "userID"});
   reports.belongsTo(users, { as: "user", foreignKey: "userID"});
   users.hasMany(reports, { as: "reports", foreignKey: "userID"});
-  usersettings.belongsTo(users, { as: "user", foreignKey: "userID"});
-  users.hasMany(usersettings, { as: "usersettings", foreignKey: "userID"});
 
   return {
     albums,
@@ -172,7 +168,6 @@ function initModels(sequelize) {
     songs,
     topics,
     users,
-    usersettings,
   };
 }
 module.exports = initModels;

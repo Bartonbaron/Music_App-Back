@@ -169,7 +169,13 @@ const changePassword = async (req, res) => {
 
 const deactivateAccount = async (req, res) => {
     try {
-        const userId = req.user.id; // pobrane z tokena JWT
+        const userId = req.params.id;
+
+        if (req.user.id == userId) {
+            return res.status(400).json({
+                message: "Admin cannot deactivate their own account"
+            });
+        }
 
         const user = await User.findByPk(userId);
         if (!user) {
@@ -196,7 +202,7 @@ const deactivateAccount = async (req, res) => {
 
 const reactivateAccount = async (req, res) => {
     try {
-        const userId = req.user.id;
+        const userId = req.params.id;
 
         const user = await User.findByPk(userId);
         if (!user) {
@@ -210,7 +216,10 @@ const reactivateAccount = async (req, res) => {
         user.status = true;
         await user.save();
 
-        res.json({ message: 'Account reactivated successfully!' });
+        res.json({ message: 'Account reactivated successfully!',
+            userID: user.userID,
+            status: user.status
+        });
     } catch (error) {
         console.error('Account reactivation error:', error);
         return res.status(500).json({ message: 'Server error during account reactivation' });

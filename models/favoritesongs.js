@@ -29,6 +29,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     }
   }, {
+    sequelize,
     tableName: 'favoritesongs',
     timestamps: false,
     indexes: [

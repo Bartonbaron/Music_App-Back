@@ -37,6 +37,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     }
   }, {
+    sequelize,
     tableName: 'playhistory',
     timestamps: false,
     indexes: [

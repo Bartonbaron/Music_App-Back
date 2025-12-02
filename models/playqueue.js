@@ -36,6 +36,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
+    sequelize,
     tableName: 'playqueue',
     timestamps: false,
     indexes: [

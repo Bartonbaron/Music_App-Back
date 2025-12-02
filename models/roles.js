@@ -16,6 +16,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
+    sequelize,
     tableName: 'roles',
     timestamps: false,
     indexes: [

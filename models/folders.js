@@ -20,6 +20,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false
     }
   }, {
+    sequelize,
     tableName: 'folders',
     timestamps: true,
     indexes: [

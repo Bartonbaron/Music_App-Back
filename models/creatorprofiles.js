@@ -31,6 +31,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
+    sequelize,
     tableName: 'creatorprofiles',
     timestamps: true,
     indexes: [

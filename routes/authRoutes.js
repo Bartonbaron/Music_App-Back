@@ -14,8 +14,8 @@ router.get('/list', authenticateToken, requireAdmin, getAllUsers);
 
 router.put('/update', authenticateToken, updateProfile);
 router.put('/change-password', authenticateToken, changePassword);
-router.put('/deactivate', authenticateToken, deactivateAccount);
-router.put('/reactivate', authenticateToken, reactivateAccount);
+router.put('/deactivate/:id', authenticateToken, requireAdmin, deactivateAccount);
+router.put('/reactivate/:id', authenticateToken, requireAdmin, reactivateAccount);
 router.put('/promote/:id', authenticateToken, requireAdmin, promoteToCreator);
 router.put('/demote/:id', authenticateToken, requireAdmin, demoteCreator);
 

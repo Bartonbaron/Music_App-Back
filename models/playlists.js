@@ -43,6 +43,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: "N"
     }
   }, {
+    sequelize,
     tableName: 'playlists',
     timestamps: true,
     indexes: [

@@ -37,7 +37,7 @@ module.exports = function(sequelize, DataTypes) {
     },
     fileURL: {
       type: DataTypes.STRING(255),
-      allowNull: false
+      allowNull: true
     },
     duration: {
       type: DataTypes.INTEGER,
@@ -58,6 +58,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true
     }
   }, {
+    sequelize,
     tableName: 'songs',
     timestamps: true,
     indexes: [
