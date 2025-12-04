@@ -4,6 +4,8 @@ const router = express.Router();
 const { registerUser, loginUser, protectedRoute, updateProfile, changePassword, deactivateAccount, reactivateAccount, getProfile, promoteToCreator, demoteCreator, getAllCreators, getAllUsers } = require('../controllers/authController');
 const { authenticateToken, requireAdmin} = require('../middleware/authMiddleware');
 
+
+// Trasy
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 
