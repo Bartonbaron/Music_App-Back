@@ -273,8 +273,24 @@ const promoteToCreator = async (req, res) => {
             return res.status(500).json({ message: "Role 'Creator' not found in database" });
         }
 
+        // Zaktualizuj rolę
         user.roleID = creatorRole.roleID;
         await user.save();
+
+        // Sprawdź czy creatorProfile istnieje
+        const existingProfile = await models.creatorprofiles.findOne({
+            where: { userID: userId }
+        });
+
+        // Jeśli nie istnieje -> utwórz nowy
+        if (!existingProfile) {
+            await models.creatorprofiles.create({
+                userID: userId,
+                bio: null,
+                verified: "N",
+                numberOfFollowers: 0
+            });
+        }
 
         res.json({
             message: "User promoted to Creator successfully",
@@ -303,14 +319,10 @@ const demoteCreator = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Sprawdzenie czy user jest Twórcą
         if (user.role.roleName !== 'Creator') {
-            return res.status(400).json({
-                message: 'User is not a Creator'
-            });
+            return res.status(400).json({ message: 'User is not a Creator' });
         }
 
-        // Pobierz rolę "User"
         const userRole = await models.roles.findOne({
             where: { roleName: 'User' }
         });
@@ -321,11 +333,20 @@ const demoteCreator = async (req, res) => {
             });
         }
 
-        // Aktualizacja roli
+        // Usuń creatorProfile
+        const profile = await models.creatorprofiles.findOne({
+            where: { userID: userId }
+        });
+
+        if (profile) {
+            await profile.destroy();
+        }
+
+        // Zmień rolę
         user.roleID = userRole.roleID;
         await user.save();
 
-        return res.json({
+        res.json({
             message: 'User demoted from Creator to User successfully',
             userID: user.userID
         });

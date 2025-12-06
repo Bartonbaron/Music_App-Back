@@ -33,7 +33,7 @@ module.exports = function(sequelize, DataTypes) {
   }, {
     sequelize,
     tableName: 'creatorprofiles',
-    timestamps: true,
+    timestamps: false,
     indexes: [
       {
         name: "PRIMARY",

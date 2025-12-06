@@ -84,6 +84,7 @@ const uploadSong = async (req, res) => {
     try {
         const audioFile = req.files?.file?.[0];
         const coverFile = req.files?.cover?.[0];
+        const { genreID } = req.body;
 
         // Reset AUTO_INCREMENT jeśli pusto
         const count = await Song.count();
@@ -93,6 +94,16 @@ const uploadSong = async (req, res) => {
 
         if (!audioFile) {
             return res.status(400).json({ message: "Audio file is required" });
+        }
+
+        if (!genreID) {
+            return res.status(400).json({ message: "genreID is required" });
+        }
+
+        // sprawdzenie czy gatunek istnieje
+        const genre = await models.genres.findByPk(genreID);
+        if (!genre) {
+            return res.status(400).json({ message: "Invalid genreID" });
         }
 
         // Duration
@@ -115,7 +126,8 @@ const uploadSong = async (req, res) => {
             fileURL: null,
             coverURL: null,
             streamCount: 0,
-            likeCount: 0
+            likeCount: 0,
+            genreID
         });
 
         const songID = song.songID;
