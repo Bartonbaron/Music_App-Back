@@ -29,7 +29,7 @@ module.exports = function(sequelize, DataTypes) {
     },
     fileURL: {
       type: DataTypes.STRING(255),
-      allowNull: false
+      allowNull: true
     },
     description: {
       type: DataTypes.TEXT,
@@ -47,11 +47,6 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.CHAR(1),
       allowNull: true,
       defaultValue: "P"
-    },
-    likeCount: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      defaultValue: 0
     },
     streamCount: {
       type: DataTypes.INTEGER,

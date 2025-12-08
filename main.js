@@ -9,16 +9,21 @@ const songsRoutes = require("./routes/songsRoutes");
 const genresRoutes = require("./routes/genresRoutes");
 const avatarRoutes = require("./routes/avatarRoutes");
 const creatorRoutes = require("./routes/creatorRoutes");
-
-app.use("/api/", avatarRoutes);
+const topicsRoutes = require("./routes/topicsRoutes");
+const podcastsRoutes = require("./routes/podcastsRoutes");
+const playlistsRoutes = require("./routes/playlistsRoutes");
 
 // Global Middleware
 app.use(express.json());
 
-app.use('/api/auth', authRoutes);
-app.use("/api", songsRoutes);
-app.use("/api/", genresRoutes);
-app.use("/api/", creatorRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/creators", creatorRoutes);
+app.use("/api/podcasts", podcastsRoutes);
+app.use("/api/playlists", playlistsRoutes);
+app.use("/api/songs", songsRoutes);
+app.use("/api/genres", genresRoutes);
+app.use("/api/topics", topicsRoutes);
+app.use("/api/avatars", avatarRoutes);
 
 app.get('/welcome', (req, res) => {
     res.send('Witaj!');

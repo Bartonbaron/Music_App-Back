@@ -42,5 +42,26 @@ const requireAdmin = async (req, res, next) => {
     }
 };
 
-module.exports = { authenticateToken, requireAdmin };
+const requireCreator = async (req, res, next) => {
+    try {
+        const user = await models.users.findByPk(req.user.id, {
+            include: { model: models.roles, as: "role" },
+        });
+
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        if (user.role.roleName !== "Creator") {
+            return res.status(403).json({ message: "Creator role required" });
+        }
+
+        next();
+    } catch (error) {
+        console.error("Creator check error:", error);
+        res.status(500).json({ message: "Server error while checking creator role" });
+    }
+};
+
+module.exports = { authenticateToken, requireAdmin, requireCreator };
 

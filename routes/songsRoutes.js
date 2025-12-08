@@ -8,11 +8,11 @@ const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
 // Trasy
-router.get("/songs/:songID", getSong);
-router.get("/songs", getSongsList);
+router.get("/:songID", getSong);
+router.get("/", getSongsList);
 
 router.post(
-    "/upload/song",
+    "/upload",
     upload.fields([
         { name: "file", maxCount: 1 },
         { name: "cover", maxCount: 1 }
@@ -20,11 +20,11 @@ router.post(
     uploadSong
 );
 
-router.post("/songs/:id/like", likeSong);
-router.post("/songs/:id/unlike", unlikeSong);
+router.post("/:id/like", likeSong);
+router.post("/:id/unlike", unlikeSong);
 
-router.delete("/song/:songID", deleteSong);
-router.patch("/songs/:id/stream", incrementStreamCount);
+router.delete("/:songID", deleteSong);
+router.patch("/:id/stream", incrementStreamCount);
 
 
 module.exports = router;

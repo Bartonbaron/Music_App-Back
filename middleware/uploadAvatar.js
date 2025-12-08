@@ -3,6 +3,8 @@ const multer = require("multer");
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
+    console.log("UPLOAD AVATAR HIT:", req.originalUrl);
+    console.log("FILE RECEIVED:", file.originalname, file.mimetype);
 
     const allowed = ["image/jpeg", "image/png", "image/jpg"];
 
