@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { models } = require('../models');
+const { sequelize, models } = require('../models');
 const User = models.users;
 const Role = models.roles;
+const Library = models.library;
 
 // Walidacja hasła: min. 8 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny
 const validatePassword = (password) => {
@@ -12,6 +13,8 @@ const validatePassword = (password) => {
 
 // Rejestracja użytkownika
 const registerUser = async (req, res) => {
+    const transaction = await sequelize.transaction();
+
     try {
         const { userName, password, email } = req.body;
 
@@ -41,13 +44,20 @@ const registerUser = async (req, res) => {
             email,
             roleID: userRole.roleID,
             status: 1          // aktywne konto
-        });
+        }, {transaction});
+
+        await Library.create({
+            userID: newUser.userID
+        }, { transaction });
+
+        await transaction.commit();
 
         res.status(201).json({
             message: 'Registered successfully!',
             userID: newUser.userID,
             userName: newUser.userName
         });
+
     } catch (error) {
         console.error('Registration error:', error);
         res.status(500).json({ message: 'Server error during registration' });

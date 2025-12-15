@@ -1,8 +1,11 @@
 const express = require('express');
 require('dotenv').config();
+const cors = require('cors');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+app.use(cors({origin: "http://localhost:5173", credentials: true}));
 
 const authRoutes = require('./routes/authRoutes');
 const songsRoutes = require("./routes/songsRoutes");

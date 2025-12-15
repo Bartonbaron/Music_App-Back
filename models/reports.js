@@ -15,24 +15,12 @@ module.exports = function(sequelize, DataTypes) {
         key: 'userID'
       }
     },
-    songID: {
+    contentID: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'songs',
-        key: 'songID'
-      }
-    },
-    podcastID: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'podcasts',
-        key: 'podcastID'
-      }
+      allowNull: false
     },
     contentType: {
-      type: DataTypes.ENUM('s','p'),
+      type: DataTypes.ENUM('song','podcast'),
       allowNull: false
     },
     reason: {
@@ -62,20 +50,6 @@ module.exports = function(sequelize, DataTypes) {
         using: "BTREE",
         fields: [
           { name: "userID" },
-        ]
-      },
-      {
-        name: "songID",
-        using: "BTREE",
-        fields: [
-          { name: "songID" },
-        ]
-      },
-      {
-        name: "podcastID",
-        using: "BTREE",
-        fields: [
-          { name: "podcastID" },
         ]
       },
     ]

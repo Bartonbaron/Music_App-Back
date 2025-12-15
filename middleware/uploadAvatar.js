@@ -12,10 +12,10 @@ const fileFilter = (req, file, cb) => {
     else cb(new Error("Only .jpg, .jpeg, .png allowed"), false);
 };
 
-const uploadAvatar = multer({
+const uploadAvatarM = multer({
     storage,
     limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
     fileFilter,
 });
 
-module.exports = uploadAvatar;
+module.exports = uploadAvatarM;

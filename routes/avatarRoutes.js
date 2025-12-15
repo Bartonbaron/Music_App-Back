@@ -2,12 +2,12 @@ const express = require("express");
 const router = express.Router();
 
 const { authenticateToken } = require("../middleware/authMiddleware");
-const uploadAvatar = require("../middleware/uploadAvatar");
-const avatarCtrl = require("../controllers/userAvatarController");
+const uploadAvatarM = require("../middleware/uploadAvatar");
+const {uploadAvatar, deleteAvatar} = require("../controllers/userAvatarController");
 
-router.post("/", authenticateToken, uploadAvatar.single("avatar"), avatarCtrl.uploadAvatar);
+router.post("/", authenticateToken, uploadAvatarM.single("avatar"), uploadAvatar);
 
-router.delete("/", authenticateToken, avatarCtrl.deleteAvatar);
+router.delete("/", authenticateToken, deleteAvatar);
 
 module.exports = router;
 

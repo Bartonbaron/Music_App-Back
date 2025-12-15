@@ -177,9 +177,6 @@ const uploadSong = async (req, res) => {
     }
 };
 
-
-
-
 // Usuwanie utworu
 const deleteSong = async (req, res) => {
     try {
@@ -259,7 +256,7 @@ const incrementStreamCount = async (req, res) => {
 const likeSong = async (req, res) => {
     try {
         const { id } = req.params;
-        const { userID } = req.body;
+        const userID = req.body.id;
 
         const song = await Song.findByPk(id);
         if (!song) return res.status(404).json({ message: "Song not found" });
@@ -286,7 +283,7 @@ const likeSong = async (req, res) => {
 const unlikeSong = async (req, res) => {
     try {
         const { id } = req.params;
-        const { userID } = req.body;
+        const userID = req.body.id;
 
         const song = await Song.findByPk(id);
         if (!song) return res.status(404).json({ message: "Song not found" });

@@ -2,13 +2,13 @@ const express = require("express");
 const router = express.Router();
 
 const { authenticateToken } = require("../middleware/authMiddleware");
-const creatorCtrl = require("../controllers/creatorController");
+const {getCreatorProfile, updateCreatorProfile, followCreator, unfollowCreator} = require("../controllers/creatorController");
 
-router.get("/:id", creatorCtrl.getCreatorProfile);
+router.get("/:id", authenticateToken, getCreatorProfile);
 
-router.patch("/:id", authenticateToken, creatorCtrl.updateCreatorProfile);
+router.patch("/:id", authenticateToken, updateCreatorProfile);
 
-router.post("/:id/follow", authenticateToken, creatorCtrl.followCreator);
-router.post("/:id/unfollow", authenticateToken, creatorCtrl.unfollowCreator);
+router.post("/:id/follow", authenticateToken, followCreator);
+router.post("/:id/unfollow", authenticateToken, unfollowCreator);
 
 module.exports = router;
