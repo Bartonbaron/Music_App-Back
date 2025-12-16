@@ -9,12 +9,10 @@ const { authenticateToken, requireAdmin} = require('../middleware/authMiddleware
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 
-router.get('/protected', authenticateToken, protectedRoute);
 router.get('/profile', authenticateToken, getProfile);
 router.get('/creators', authenticateToken, requireAdmin, getAllCreators);
 router.get('/list', authenticateToken, requireAdmin, getAllUsers);
 router.get("/me", authenticateToken, (req, res) => {res.json({ user: req.user });});
-
 
 router.put('/update', authenticateToken, updateProfile);
 router.put('/change-password', authenticateToken, changePassword);

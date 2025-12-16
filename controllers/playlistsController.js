@@ -1,6 +1,17 @@
 const { models } = require("../models");
 const {Op} = require("sequelize");
+
+const { generateSignedUrl } = require("../config/s3");
+
+const extractKey = (url) =>
+    url ? url.split(".amazonaws.com/")[1] : null;
+
 const {canAccessPlaylist, canEditPlaylist} = require("../utils/playlistPermissions");
+const uploadCover = require("../utils/uploadCover");
+const deleteCover = require("../utils/deleteCover");
+
+const {s3} = require("../config/s3");
+const {PutObjectCommand} = require("@aws-sdk/client-s3");
 const Playlist = models.playlists;
 const Song = models.songs;
 const User = models.users;
@@ -12,15 +23,29 @@ const LibraryPlaylists = models.libraryplaylists;
 const createPlaylist = async (req, res) => {
     try {
         const { playlistName, description } = req.body;
+        const coverFile = req.files?.cover?.[0];
 
-        if (!playlistName)
+        if (!playlistName) {
             return res.status(400).json({ message: "Playlist name is required" });
+        }
 
         const playlist = await Playlist.create({
             playlistName,
             description: description || null,
             userID: req.user.id,
+            coverURL: null
         });
+
+        if (coverFile) {
+            const coverURL = await uploadCover({
+                file: coverFile,
+                oldURL: null,
+                folder: "covers/playlists",
+                filename: playlist.playlistID
+            });
+
+            await playlist.update({ coverURL });
+        }
 
         res.status(201).json({
             message: "Playlist created",
@@ -33,13 +58,23 @@ const createPlaylist = async (req, res) => {
     }
 };
 
+
 const getUserPlaylists = async (req, res) => {
     try {
         const playlists = await Playlist.findAll({
             where: { userID: req.user.id }
         });
 
-        res.json(playlists);
+        const result = await Promise.all(
+            playlists.map(async (playlist) => ({
+                ...playlist.toJSON(),
+                signedCover: playlist.coverURL
+                    ? await generateSignedUrl(extractKey(playlist.coverURL))
+                    : null
+            }))
+        );
+
+        res.json(result);
 
     } catch (err) {
         console.error("GET MY PLAYLISTS ERROR:", err);
@@ -59,7 +94,12 @@ const getPlaylist = async (req, res) => {
             return res.status(403).json({ message: "This playlist is private" });
         }
 
-        res.json(playlist);
+        res.json({
+            ...playlist.toJSON(),
+            signedCover: playlist.coverURL
+                ? await generateSignedUrl(extractKey(playlist.coverURL))
+                : null
+        });
 
     } catch (err) {
         console.error("GET PLAYLIST ERROR:", err);
@@ -302,7 +342,23 @@ const getPlaylistSongs = async (req, res) => {
             order: [["position", "ASC"]],
         });
 
-        res.json(items);
+        const result = await Promise.all(
+            items.map(async (item) => ({
+                playlistSongID: item.playlistSongID,
+                position: item.position,
+                song: {
+                    ...item.song.toJSON(),
+                    signedAudio: item.song.fileURL
+                        ? await generateSignedUrl(extractKey(item.song.fileURL))
+                        : null,
+                    signedCover: item.song.coverURL
+                        ? await generateSignedUrl(extractKey(item.song.coverURL))
+                        : null
+                }
+            }))
+        );
+
+        res.json(result);
     } catch (err) {
         console.error("GET PLAYLIST SONGS ERROR:", err);
         res.status(500).json({ message: "Server error" });
@@ -314,16 +370,30 @@ const addPlaylistToLibrary = async (req, res) => {
     try {
         const playlistID = req.params.id;
 
+        const playlist = await Playlist.findByPk(playlistID);
+        if (!playlist) {
+            return res.status(404).json({ message: "Playlist not found" });
+        }
+
+        if (!canAccessPlaylist(playlist, req.user.id)) {
+            return res.status(403).json({ message: "This playlist is private" });
+        }
+
         const library = await Library.findOne({
             where: { userID: req.user.id }
         });
+
+        if (!library) {
+            return res.status(404).json({ message: "Library not found" });
+        }
 
         const exists = await LibraryPlaylists.findOne({
             where: { libraryID: library.libraryID, playlistID }
         });
 
-        if (exists)
+        if (exists) {
             return res.status(400).json({ message: "Playlist already in library" });
+        }
 
         await LibraryPlaylists.create({
             libraryID: library.libraryID,
@@ -337,6 +407,7 @@ const addPlaylistToLibrary = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
+
 
 const reorderPlaylistSongs = async (req, res) => {
     try {
@@ -358,6 +429,28 @@ const reorderPlaylistSongs = async (req, res) => {
             return res.status(403).json({ message: "Not authorized to modify this playlist" });
         }
 
+        const items = await PlaylistSongs.findAll({
+            where: { playlistID },
+            attributes: ["songID"],
+            raw: true
+        });
+
+        const playlistSongIDs = items.map(i => i.songID);
+
+        if (order.length !== playlistSongIDs.length) {
+            return res.status(400).json({
+                message: "Order must include all songs in the playlist"
+            });
+        }
+
+        const invalid = order.filter(id => !playlistSongIDs.includes(id));
+        if (invalid.length) {
+            return res.status(400).json({
+                message: "Some songs do not belong to this playlist",
+                invalidSongIDs: invalid
+            });
+        }
+
         for (let i = 0; i < order.length; i++) {
             await PlaylistSongs.update(
                 { position: i + 1 },
@@ -377,7 +470,6 @@ const reorderPlaylistSongs = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 // REMOVE
 const removePlaylistFromLibrary = async (req, res) => {
@@ -457,6 +549,59 @@ const toggleCollaborative = async (req, res) => {
     }
 };
 
+const uploadPlaylistCover = async (req, res) => {
+    try {
+        const playlist = await Playlist.findByPk(req.params.id);
+        if (!playlist) return res.status(404).json({ message: "Playlist not found" });
+
+        if (playlist.userID !== req.user.id) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        const coverURL = await uploadCover({
+            file: req.files?.cover?.[0],
+            oldURL: playlist.coverURL,
+            folder: "covers/playlists",
+            filename: playlist.playlistID
+        });
+
+        await playlist.update({ coverURL });
+
+        res.json({ message: "Playlist cover uploaded", coverURL });
+
+    } catch (err) {
+        console.error("UPLOAD PLAYLIST COVER ERROR:", err);
+        res.status(500).json({ message: err.message || "Upload failed" });
+    }
+};
+
+const deletePlaylistCover = async (req, res) => {
+    try {
+        const playlist = await Playlist.findByPk(req.params.id);
+        if (!playlist) {
+            return res.status(404).json({ message: "Playlist not found" });
+        }
+
+        if (playlist.userID !== req.user.id) {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        if (!playlist.coverURL) {
+            return res.status(400).json({ message: "Playlist has no cover" });
+        }
+
+        await deleteCover({ oldURL: playlist.coverURL });
+
+        await playlist.update({ coverURL: null });
+
+        res.json({ message: "Playlist cover deleted" });
+
+    } catch (err) {
+        console.error("DELETE PLAYLIST COVER ERROR:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
     createPlaylist,
     getUserPlaylists,
@@ -471,5 +616,7 @@ module.exports = {
     removePlaylistFromLibrary,
     reorderPlaylistSongs,
     changePlaylistVisibility,
-    toggleCollaborative
+    toggleCollaborative,
+    uploadPlaylistCover,
+    deletePlaylistCover
 }

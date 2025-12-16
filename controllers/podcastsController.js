@@ -224,8 +224,31 @@ const favoritePodcast = async (req, res) => {
         const userID = req.user.id;
         const podcastID = req.params.id;
 
-        const exists = await FavoritePodcasts.findOne({ where: { userID, podcastID } });
-        if (exists) return res.status(400).json({ message: "Already in favorites" });
+        const podcast = await Podcast.findByPk(podcastID);
+        if (!podcast) {
+            return res.status(404).json({ message: "Podcast not found" });
+        }
+
+        // Widoczność
+        if (podcast.visibility === "R") {
+            const creator = await CreatorProfile.findOne({
+                where: { userID }
+            });
+
+            if (!creator || creator.creatorID !== podcast.creatorID) {
+                return res.status(403).json({
+                    message: "This podcast is private"
+                });
+            }
+        }
+
+        const exists = await FavoritePodcasts.findOne({
+            where: { userID, podcastID }
+        });
+
+        if (exists) {
+            return res.status(400).json({ message: "Already in favorites" });
+        }
 
         await FavoritePodcasts.create({ userID, podcastID });
 

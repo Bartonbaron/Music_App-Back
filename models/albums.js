@@ -19,12 +19,21 @@ module.exports = function(sequelize, DataTypes) {
         key: 'creatorID'
       }
     },
+    genreID: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "genres",
+        key: "genreID"
+      }
+    },
+    isPublished: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: 1
+    },
     coverURL: {
       type: DataTypes.STRING(255),
-      allowNull: true
-    },
-    genre: {
-      type: DataTypes.STRING(30),
       allowNull: true
     },
     description: {

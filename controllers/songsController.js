@@ -4,6 +4,7 @@ const mm = require("music-metadata");
 
 const { sequelize, models } = require("../models");
 const Song = models.songs;
+const CreatorProfile = models.creatorprofiles;
 const UserSongLikes = models.usersonglikes;
 const FavoriteSongs = models.favoritesongs;
 
@@ -76,9 +77,6 @@ const getSongsList = async (req, res) => {
     }
 };
 
-
-
-
 // Upload utworu
 const uploadSong = async (req, res) => {
     try {
@@ -119,9 +117,18 @@ const uploadSong = async (req, res) => {
 
         const songName = audioFile.originalname.replace(/\.[^/.]+$/, "");
 
+        const creator = await CreatorProfile.findOne({
+            where: { userID: req.user.id }
+        });
+
+        if (!creator) {
+            return res.status(403).json({ message: "Creator profile not found" });
+        }
+
         // Stwórz najpierw rekord w bazie
         const song = await Song.create({
             songName,
+            creatorID: creator.creatorID,
             duration,
             fileURL: null,
             coverURL: null,
@@ -205,9 +212,7 @@ const deleteSong = async (req, res) => {
             await s3.send(cmd);
         }
 
-
         await song.destroy();
-
 
         const count = await Song.count();
         if (count === 0) {
@@ -225,9 +230,6 @@ const deleteSong = async (req, res) => {
         return res.status(500).json({ message: "Delete failed", error: err });
     }
 };
-
-
-
 
 // Increment stream count
 const incrementStreamCount = async (req, res) => {
@@ -256,7 +258,7 @@ const incrementStreamCount = async (req, res) => {
 const likeSong = async (req, res) => {
     try {
         const { id } = req.params;
-        const userID = req.body.id;
+        const userID = req.user.id;
 
         const song = await Song.findByPk(id);
         if (!song) return res.status(404).json({ message: "Song not found" });
@@ -283,7 +285,7 @@ const likeSong = async (req, res) => {
 const unlikeSong = async (req, res) => {
     try {
         const { id } = req.params;
-        const userID = req.body.id;
+        const userID = req.user.id;
 
         const song = await Song.findByPk(id);
         if (!song) return res.status(404).json({ message: "Song not found" });

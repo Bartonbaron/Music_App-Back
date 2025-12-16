@@ -56,6 +56,10 @@ module.exports = function(sequelize, DataTypes) {
     coverURL: {
       type: DataTypes.STRING(255),
       allowNull: true
+    },
+    trackNumber: {
+      type: DataTypes.INTEGER,
+      allowNull: true
     }
   }, {
     sequelize,

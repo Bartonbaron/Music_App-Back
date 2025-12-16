@@ -1,5 +1,5 @@
 const express = require("express");
-const multer = require("multer");
+const uploadSongM = require("../middleware/uploadSongM");
 
 const { authenticateToken, requireCreator } = require("../middleware/authMiddleware");
 
@@ -7,19 +7,17 @@ const {getSong, getSongsList, uploadSong, deleteSong, incrementStreamCount, like
 
 const router = express.Router();
 
-const upload = multer({ storage: multer.memoryStorage() });
-
 // Trasy
 router.get("/:songID", authenticateToken, getSong);
 router.get("/", authenticateToken, getSongsList);
 
 router.post(
-    "/upload",
-    upload.fields([
+    "/upload", authenticateToken, requireCreator,
+    uploadSongM.fields([
         { name: "file", maxCount: 1 },
         { name: "cover", maxCount: 1 }
     ]),
-    authenticateToken, requireCreator, uploadSong
+    uploadSong
 );
 
 router.post("/:id/like", authenticateToken, likeSong);

@@ -60,8 +60,6 @@ const uploadAvatar = async (req, res) => {
     }
 };
 
-
-
 const deleteAvatar = async (req, res) => {
     try {
         const userID = req.user.id;

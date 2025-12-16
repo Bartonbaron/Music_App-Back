@@ -26,7 +26,7 @@ module.exports = function(sequelize, DataTypes) {
   }, {
     sequelize,
     tableName: 'usersonglikes',
-    timestamps: true,
+    timestamps: false,
     indexes: [
       {
         name: "PRIMARY",

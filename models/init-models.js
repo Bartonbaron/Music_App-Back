@@ -10,7 +10,6 @@ var _genres = require("./genres");
 var _library = require("./library");
 var _libraryalbums = require("./libraryalbums");
 var _libraryplaylists = require("./libraryplaylists");
-var _librarypodcasts = require("./librarypodcasts");
 var _playhistory = require("./playhistory");
 var _playlistactivities = require("./playlistactivities");
 var _playlists = require("./playlists");
@@ -37,7 +36,6 @@ function initModels(sequelize) {
   var library = _library(sequelize, DataTypes);
   var libraryalbums = _libraryalbums(sequelize, DataTypes);
   var libraryplaylists = _libraryplaylists(sequelize, DataTypes);
-  var librarypodcasts = _librarypodcasts(sequelize, DataTypes);
   var playhistory = _playhistory(sequelize, DataTypes);
   var playlistactivities = _playlistactivities(sequelize, DataTypes);
   var playlists = _playlists(sequelize, DataTypes);
@@ -53,14 +51,13 @@ function initModels(sequelize) {
   var usersonglikes = _usersonglikes(sequelize, DataTypes);
 
   albums.belongsToMany(library, { as: 'libraryID_libraries', through: libraryalbums, foreignKey: "albumID", otherKey: "libraryID" });
+  albums.belongsTo(genres, {as: "genre", foreignKey: "genreID"});
   folders.belongsToMany(playlists, { as: 'playlistID_playlists', through: folderplaylists, foreignKey: "folderID", otherKey: "playlistID" });
   library.belongsToMany(albums, { as: 'albumID_albums', through: libraryalbums, foreignKey: "libraryID", otherKey: "albumID" });
   library.belongsToMany(playlists, { as: 'playlistID_playlists_libraryplaylists', through: libraryplaylists, foreignKey: "libraryID", otherKey: "playlistID" });
-  library.belongsToMany(podcasts, { as: 'podcastID_podcasts', through: librarypodcasts, foreignKey: "libraryID", otherKey: "podcastID" });
   playlists.belongsToMany(folders, { as: 'folderID_folders', through: folderplaylists, foreignKey: "playlistID", otherKey: "folderID" });
   playlists.belongsToMany(library, { as: 'libraryID_library_libraryplaylists', through: libraryplaylists, foreignKey: "playlistID", otherKey: "libraryID" });
   playlists.belongsToMany(songs, { as: 'songID_songs', through: playlistsongs, foreignKey: "playlistID", otherKey: "songID" });
-  podcasts.belongsToMany(library, { as: 'libraryID_library_librarypodcasts', through: librarypodcasts, foreignKey: "podcastID", otherKey: "libraryID" });
   songs.belongsToMany(playlists, { as: 'playlistID_playlists_playlistsongs', through: playlistsongs, foreignKey: "songID", otherKey: "playlistID" });
   libraryalbums.belongsTo(albums, { as: "album", foreignKey: "albumID"});
   albums.hasMany(libraryalbums, { as: "libraryalbums", foreignKey: "albumID"});
@@ -78,12 +75,11 @@ function initModels(sequelize) {
   folders.hasMany(folderplaylists, { as: "folderplaylists", foreignKey: "folderID"});
   songs.belongsTo(genres, { as: "genre", foreignKey: "genreID"});
   genres.hasMany(songs, { as: "songs", foreignKey: "genreID"});
+  genres.hasMany(albums, {as: "albums", foreignKey: "genreID"});
   libraryalbums.belongsTo(library, { as: "library", foreignKey: "libraryID"});
   library.hasMany(libraryalbums, { as: "libraryalbums", foreignKey: "libraryID"});
   libraryplaylists.belongsTo(library, { as: "library", foreignKey: "libraryID"});
   library.hasMany(libraryplaylists, { as: "libraryplaylists", foreignKey: "libraryID"});
-  librarypodcasts.belongsTo(library, { as: "library", foreignKey: "libraryID"});
-  library.hasMany(librarypodcasts, { as: "librarypodcasts", foreignKey: "libraryID"});
   folderplaylists.belongsTo(playlists, { as: "playlist", foreignKey: "playlistID"});
   playlists.hasMany(folderplaylists, { as: "folderplaylists", foreignKey: "playlistID"});
   libraryplaylists.belongsTo(playlists, { as: "playlist", foreignKey: "playlistID"});
@@ -94,8 +90,6 @@ function initModels(sequelize) {
   playlists.hasMany(playlistsongs, { as: "playlistsongs", foreignKey: "playlistID"});
   favoritepodcasts.belongsTo(podcasts, { as: "podcast", foreignKey: "podcastID"});
   podcasts.hasMany(favoritepodcasts, { as: "favoritepodcasts", foreignKey: "podcastID"});
-  librarypodcasts.belongsTo(podcasts, { as: "podcast", foreignKey: "podcastID"});
-  podcasts.hasMany(librarypodcasts, { as: "librarypodcasts", foreignKey: "podcastID"});
   playhistory.belongsTo(podcasts, { as: "podcast", foreignKey: "podcastID"});
   podcasts.hasMany(playhistory, { as: "playhistories", foreignKey: "podcastID"});
   playqueue.belongsTo(podcasts, { as: "podcast", foreignKey: "podcastID"});
@@ -157,7 +151,6 @@ function initModels(sequelize) {
     library,
     libraryalbums,
     libraryplaylists,
-    librarypodcasts,
     playhistory,
     playlistactivities,
     playlists,
