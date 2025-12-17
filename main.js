@@ -8,6 +8,7 @@ const port = process.env.PORT || 3000;
 app.use(cors({origin: "http://localhost:5173", credentials: true}));
 
 const authRoutes = require('./routes/authRoutes');
+const searchRoutes = require('./routes/searchRoutes');
 const songsRoutes = require("./routes/songsRoutes");
 const genresRoutes = require("./routes/genresRoutes");
 const avatarRoutes = require("./routes/avatarRoutes");
@@ -17,12 +18,15 @@ const podcastsRoutes = require("./routes/podcastsRoutes");
 const playlistsRoutes = require("./routes/playlistsRoutes");
 const libraryRoutes = require("./routes/libraryRoutes");
 const albumsRoutes = require("./routes/albumsRoutes");
-const foldersRoutes = require("./routes/foldersRoutes")
+const foldersRoutes = require("./routes/foldersRoutes");
+const playHistoryRoutes = require("./routes/playHistoryRoutes");
+const playQueueRoutes = require("./routes/playQueueRoutes");
 
 // Global Middleware
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
+app.use("/api/search", searchRoutes);
 app.use("/api/creators", creatorRoutes);
 app.use("/api/podcasts", podcastsRoutes);
 app.use("/api/playlists", playlistsRoutes);
@@ -33,6 +37,8 @@ app.use("/api/topics", topicsRoutes);
 app.use("/api/avatars", avatarRoutes);
 app.use("/api/albums", albumsRoutes);
 app.use("/api/folders", foldersRoutes);
+app.use("/api/playhistory", playHistoryRoutes);
+app.use("/api/playqueue", playQueueRoutes);
 
 app.listen(port, () => {
     console.log(`Server is listening on port ${port}...`);
