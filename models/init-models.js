@@ -20,6 +20,7 @@ var _recommendations = require("./recommendations");
 var _reports = require("./reports");
 var _roles = require("./roles");
 var _songs = require("./songs");
+var _streamhistory = require("./streamhistory");
 var _topics = require("./topics");
 var _users = require("./users");
 var _usersonglikes = require("./usersonglikes");
@@ -46,6 +47,7 @@ function initModels(sequelize) {
   var reports = _reports(sequelize, DataTypes);
   var roles = _roles(sequelize, DataTypes);
   var songs = _songs(sequelize, DataTypes);
+  var streamhistory = _streamhistory(sequelize, DataTypes);
   var topics = _topics(sequelize, DataTypes);
   var users = _users(sequelize, DataTypes);
   var usersonglikes = _usersonglikes(sequelize, DataTypes);
@@ -110,6 +112,7 @@ function initModels(sequelize) {
   songs.hasMany(recommendations, { as: "recommendations", foreignKey: "songID"});
   usersonglikes.belongsTo(songs, { as: "song", foreignKey: "songID"});
   songs.hasMany(usersonglikes, { as: "usersonglikes", foreignKey: "songID"});
+  streamhistory.belongsTo(users, {as: "user", foreignKey: "userID"});
   podcasts.belongsTo(topics, { as: "topic", foreignKey: "topicID"});
   topics.hasMany(podcasts, { as: "podcasts", foreignKey: "topicID"});
   creatorprofiles.belongsTo(users, { as: "user", foreignKey: "userID"});
@@ -138,6 +141,7 @@ function initModels(sequelize) {
   users.hasMany(reports, { as: "reports", foreignKey: "userID"});
   usersonglikes.belongsTo(users, { as: "user", foreignKey: "userID"});
   users.hasMany(usersonglikes, { as: "usersonglikes", foreignKey: "userID"});
+  users.hasMany(streamhistory, {as: "streamhistory", foreignKey: "userID"});
 
   return {
     albums,
@@ -161,6 +165,7 @@ function initModels(sequelize) {
     reports,
     roles,
     songs,
+    streamhistory,
     topics,
     users,
     usersonglikes,

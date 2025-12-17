@@ -1,12 +1,14 @@
 const { S3Client, PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const mm = require("music-metadata");
+const {Op} = require("sequelize");
 
 const { sequelize, models } = require("../models");
 const Song = models.songs;
 const CreatorProfile = models.creatorprofiles;
 const UserSongLikes = models.usersonglikes;
 const FavoriteSongs = models.favoritesongs;
+const StreamHistory = models.streamhistory;
 
 const { generateSignedUrl } = require("../config/s3");
 
@@ -234,25 +236,47 @@ const deleteSong = async (req, res) => {
 // Increment stream count
 const incrementStreamCount = async (req, res) => {
     try {
-        const { id } = req.params;
-        const song = await Song.findByPk(id);
+        const songID = req.params.id;
+        const userID = req.user?.id;
 
-        if (!song) return res.status(404).json({ message: "Song not found" });
+        const song = await Song.findByPk(songID);
+        if (!song) {
+            return res.status(404).json({ message: "Song not found" });
+        }
+
+        const recent = await StreamHistory.findOne({
+            where: {
+                userID,
+                targetType: "song",
+                targetID: songID,
+                createdAt: {
+                    [Op.gt]: new Date(Date.now() - 24 * 60 * 60 * 1000)
+                }
+            }
+        });
+
+        if (recent) {
+            return res.json({ message: "Stream already counted recently" });
+        }
 
         await song.increment("streamCount");
 
-        return res.json({
-            message: "Stream count incremented",
+        await StreamHistory.create({
+            userID,
+            targetType: "song",
+            targetID: songID
+        });
+
+        res.json({
+            message: "Stream counted",
             streamCount: song.streamCount + 1
         });
 
     } catch (err) {
-        console.log("STREAM ERROR:", err);
-        return res.status(500).json({ message: "Failed to increment stream", error: err });
+        console.error("STREAM ERROR:", err);
+        res.status(500).json({ message: "Server error" });
     }
 };
-
-
 
 // Polubienie utworu
 const likeSong = async (req, res) => {

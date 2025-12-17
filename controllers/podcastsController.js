@@ -1,11 +1,13 @@
 const { PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 const { s3, generateSignedUrl } = require("../config/s3");
 const mm = require("music-metadata");
+const {Op} = require("sequelize");
 
 const { models, sequelize } = require("../models");
 const Podcast = models.podcasts;
 const CreatorProfile = models.creatorprofiles;
 const FavoritePodcasts = models.favoritepodcasts;
+const StreamHistory = models.streamhistory;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
@@ -207,12 +209,51 @@ const deletePodcast = async (req, res) => {
 
 const incrementPodcastStream = async (req, res) => {
     try {
-        const podcast = await Podcast.findByPk(req.params.id);
-        if (!podcast) return res.status(404).json({ message: "Podcast not found" });
+        const podcastID = req.params.id;
+        const userID = req.user.id;
+
+        const podcast = await Podcast.findByPk(podcastID);
+        if (!podcast) {
+            return res.status(404).json({ message: "Podcast not found" });
+        }
+
+        if (podcast.visibility === "R") {
+            const creator = await CreatorProfile.findOne({
+                where: { userID }
+            });
+
+            if (!creator || creator.creatorID !== podcast.creatorID) {
+                return res.status(403).json({
+                    message: "You are not allowed to stream this podcast"
+                });
+            }
+        }
+
+        const recent = await StreamHistory.findOne({
+            where: {
+                userID,
+                targetType: "podcast",
+                targetID: podcastID,
+                createdAt: {
+                    [Op.gt]: new Date(Date.now() - 24 * 60 * 60 * 1000)
+                }
+            }
+        });
+
+        if (recent) {
+            return res.json({ message: "Stream already counted recently" });
+        }
 
         await podcast.increment("streamCount");
 
-        res.json({ message: "Stream count incremented" });
+        await StreamHistory.create({
+            userID,
+            targetType: "podcast",
+            targetID: podcastID
+        });
+
+        res.json({ message: "Stream counted" });
+
     } catch (err) {
         console.error("STREAM ERROR:", err);
         res.status(500).json({ message: "Server error" });

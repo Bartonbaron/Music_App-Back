@@ -17,6 +17,7 @@ const podcastsRoutes = require("./routes/podcastsRoutes");
 const playlistsRoutes = require("./routes/playlistsRoutes");
 const libraryRoutes = require("./routes/libraryRoutes");
 const albumsRoutes = require("./routes/albumsRoutes");
+const foldersRoutes = require("./routes/foldersRoutes")
 
 // Global Middleware
 app.use(express.json());
@@ -31,6 +32,7 @@ app.use("/api/genres", genresRoutes);
 app.use("/api/topics", topicsRoutes);
 app.use("/api/avatars", avatarRoutes);
 app.use("/api/albums", albumsRoutes);
+app.use("/api/folders", foldersRoutes);
 
 app.listen(port, () => {
     console.log(`Server is listening on port ${port}...`);
