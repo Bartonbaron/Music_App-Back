@@ -8,6 +8,10 @@ const port = process.env.PORT || 3000;
 app.use(cors({origin: "http://localhost:5173", credentials: true}));
 
 const authRoutes = require('./routes/authRoutes');
+const adminReportsRoutes = require('./routes/adminReportsRoutes');
+const reportsRoutes = require('./routes/reportsRoutes');
+const moderationRoutes = require('./routes/moderationRoutes');
+const adminStatsRoutes = require('./routes/adminStatsRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const songsRoutes = require("./routes/songsRoutes");
 const genresRoutes = require("./routes/genresRoutes");
@@ -26,6 +30,10 @@ const playQueueRoutes = require("./routes/playQueueRoutes");
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminReportsRoutes);
+app.use("/api/reports", reportsRoutes);
+app.use("/api/moderation", moderationRoutes);
+app.use("/api/dashboard", adminStatsRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/creators", creatorRoutes);
 app.use("/api/podcasts", podcastsRoutes);

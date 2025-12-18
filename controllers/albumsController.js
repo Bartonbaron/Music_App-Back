@@ -20,9 +20,10 @@ const getAllAlbums = async (req, res) => {
     try {
         const albums = await Album.findAll({
             where: {
-                isPublished: true
+                isPublished: true,
+                moderationStatus: "ACTIVE"
             },
-                include: [
+            include: [
                 {
                     model: CreatorProfile,
                     as: "creator",
@@ -65,7 +66,12 @@ const getAlbum = async (req, res) => {
             return res.status(404).json({ message: "Album not found" });
         }
 
-        // premiera
+        if (album.moderationStatus !== "ACTIVE") {
+            return res.status(403).json({
+                message: "Album is not available"
+            });
+        }
+
         if (!album.isPublished) {
             const creator = await CreatorProfile.findOne({
                 where: { userID: req.user.id }
@@ -91,6 +97,7 @@ const getAlbum = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
+
 
 const getAlbumSongs = async (req, res) => {
     try {

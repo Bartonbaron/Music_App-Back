@@ -20,7 +20,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false
     },
     contentType: {
-      type: DataTypes.ENUM('song','podcast'),
+      type: DataTypes.ENUM('song','podcast', 'playlist', 'album', 'user'),
       allowNull: false
     },
     reason: {

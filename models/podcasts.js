@@ -48,6 +48,11 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true,
       defaultValue: "P"
     },
+    moderationStatus: {
+      type: DataTypes.ENUM("ACTIVE", "HIDDEN"),
+      allowNull: false,
+      defaultValue: "ACTIVE"
+    },
     streamCount: {
       type: DataTypes.INTEGER,
       allowNull: true,

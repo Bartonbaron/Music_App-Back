@@ -27,6 +27,11 @@ module.exports = function(sequelize, DataTypes) {
         key: "genreID"
       }
     },
+    moderationStatus: {
+      type: DataTypes.ENUM("ACTIVE", "HIDDEN"),
+      allowNull: false,
+      defaultValue: "ACTIVE"
+    },
     isPublished: {
       type: DataTypes.BOOLEAN,
       allowNull: true,

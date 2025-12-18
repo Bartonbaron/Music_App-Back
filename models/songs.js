@@ -48,6 +48,11 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true,
       defaultValue: 0
     },
+    moderationStatus: {
+      type: DataTypes.ENUM("ACTIVE", "HIDDEN"),
+      allowNull: false,
+      defaultValue: "ACTIVE"
+    },
     likeCount: {
       type: DataTypes.INTEGER,
       allowNull: true,

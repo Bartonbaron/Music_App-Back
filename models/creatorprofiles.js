@@ -21,19 +21,20 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true,
       defaultValue: 0
     },
-    verified: {
-      type: DataTypes.CHAR(1),
-      allowNull: true,
-      defaultValue: "N"
-    },
     bio: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true
     }
   }, {
     sequelize,
     tableName: 'creatorprofiles',
     timestamps: false,
+    paranoid: true,
     indexes: [
       {
         name: "PRIMARY",

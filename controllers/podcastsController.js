@@ -109,22 +109,30 @@ const uploadPodcast = async (req, res) => {
 const getPodcast = async (req, res) => {
     try {
         const podcast = await Podcast.findByPk(req.params.id);
-        if (!podcast)
+        if (!podcast) {
             return res.status(404).json({ message: "Podcast not found" });
+        }
+
+        if (podcast.moderationStatus !== "ACTIVE") {
+            return res.status(403).json({
+                message: "This podcast is not available"
+            });
+        }
 
         const creator = await CreatorProfile.findOne({
             where: { creatorID: podcast.creatorID },
             attributes: ["creatorID", "userID", "bio", "verified"]
         });
 
-        const audioKey = extractKey(podcast.fileURL);
-        const coverKey = extractKey(podcast.coverURL);
-
         res.json({
             ...podcast.toJSON(),
             creator,
-            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
-            signedCover: coverKey ? await generateSignedUrl(coverKey) : null
+            signedAudio: podcast.fileURL
+                ? await generateSignedUrl(extractKey(podcast.fileURL))
+                : null,
+            signedCover: podcast.coverURL
+                ? await generateSignedUrl(extractKey(podcast.coverURL))
+                : null
         });
 
     } catch (err) {
@@ -136,7 +144,12 @@ const getPodcast = async (req, res) => {
 // GET ALL PODCASTS + CREATOR DETAILS
 const getAllPodcasts = async (req, res) => {
     try {
-        const podcasts = await Podcast.findAll();
+        const podcasts = await Podcast.findAll({
+            where: {
+                visibility: "P",
+                moderationStatus: "ACTIVE"
+            }
+        });
 
         const result = await Promise.all(
             podcasts.map(async (p) => {
@@ -148,8 +161,12 @@ const getAllPodcasts = async (req, res) => {
                 return {
                     ...p.toJSON(),
                     creator,
-                    signedAudio: p.fileURL ? await generateSignedUrl(extractKey(p.fileURL)) : null,
-                    signedCover: p.coverURL ? await generateSignedUrl(extractKey(p.coverURL)) : null
+                    signedAudio: p.fileURL
+                        ? await generateSignedUrl(extractKey(p.fileURL))
+                        : null,
+                    signedCover: p.coverURL
+                        ? await generateSignedUrl(extractKey(p.coverURL))
+                        : null
                 };
             })
         );

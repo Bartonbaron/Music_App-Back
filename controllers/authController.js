@@ -1,9 +1,12 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { sequelize, models } = require('../models');
+require('dotenv').config();
+const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
 const User = models.users;
 const Role = models.roles;
 const Library = models.library;
+const CreatorProfile = models.creatorprofiles;
 
 // Walidacja hasła: min. 8 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny
 const validatePassword = (password) => {
@@ -33,6 +36,12 @@ const registerUser = async (req, res) => {
         if (existingUser) {
             return res.status(400).json({ message: 'User already exists' });
         }
+        if (email) {
+            const existingEmail = await User.findOne({ where: { email } });
+            if (existingEmail) {
+                return res.status(400).json({ message: 'Email already in use' });
+            }
+        }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -59,11 +68,11 @@ const registerUser = async (req, res) => {
         });
 
     } catch (error) {
+        await transaction.rollback();
         console.error('Registration error:', error);
         res.status(500).json({ message: 'Server error during registration' });
     }
 };
-
 
 // Logowanie użytkownika
 const loginUser = async (req, res) => {
@@ -86,7 +95,11 @@ const loginUser = async (req, res) => {
         }
 
         const token = jwt.sign(
-            { id: user.userID, userName: user.userName },
+            {
+                id: user.userID,
+                userName: user.userName,
+                roleID: user.roleID
+            },
             process.env.JWT_SECRET,
             { expiresIn: '1h' }
         );
@@ -99,11 +112,6 @@ const loginUser = async (req, res) => {
         console.error('Login error:', error);
         res.status(500).json({ message: 'Server error during login' });
     }
-};
-
-// Przykładowa chroniona trasa
-const protectedRoute = (req, res) => {
-    res.json({ message: `Witaj, ${req.user.username}!`, user: req.user });
 };
 
 // Aktualizacja profilu użytkownika
@@ -121,6 +129,20 @@ const updateProfile = async (req, res) => {
         user.userName = userName || user.userName;
         user.email = email || user.email;
         user.profilePicURL = profilePicURL || user.profilePicURL;
+
+        if (userName && userName !== user.userName) {
+            const exists = await User.findOne({ where: { userName } });
+            if (exists) {
+                return res.status(400).json({ message: "Username already taken" });
+            }
+        }
+
+        if (email && email !== user.email) {
+            const exists = await User.findOne({ where: { email } });
+            if (exists) {
+                return res.status(400).json({ message: "Email already in use" });
+            }
+        }
 
         await user.save();
 
@@ -177,64 +199,45 @@ const changePassword = async (req, res) => {
     }
 };
 
-const deactivateAccount = async (req, res) => {
+const deactivateOwnAccount = async (req, res) => {
     try {
-        const userId = req.params.id;
+        const userId = req.user.id;
 
-        if (req.user.id == userId) {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // admin nie może zdezaktywować siebie
+        if (req.user.roleID === ADMIN_ROLE_ID) {
             return res.status(400).json({
-                message: "Admin cannot deactivate their own account"
+                message: "Admin cannot deactivate own account"
             });
         }
 
-        const user = await User.findByPk(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
         if (user.status === false) {
-            return res.status(400).json({ message: 'Account is already deactivated' });
+            return res.status(400).json({
+                message: "Account already deactivated"
+            });
         }
 
-        user.status = false; // dezaktywacja
+        user.status = false;
         await user.save();
 
         res.json({
-            message: 'Account deactivated successfully',
+            message: "Account deactivated successfully",
             userID: user.userID,
             status: user.status
         });
+
     } catch (error) {
-        console.error('Deactivate account error:', error);
-        res.status(500).json({ message: 'Server error during account deactivation' });
-    }
-};
-
-const reactivateAccount = async (req, res) => {
-    try {
-        const userId = req.params.id;
-
-        const user = await User.findByPk(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        if (user.status === true) {
-            return res.status(400).json({ message: 'Account is already active' });
-        }
-
-        user.status = true;
-        await user.save();
-
-        res.json({ message: 'Account reactivated successfully!',
-            userID: user.userID,
-            status: user.status
+        console.error("Deactivate own account error:", error);
+        res.status(500).json({
+            message: "Server error during account deactivation"
         });
-    } catch (error) {
-        console.error('Account reactivation error:', error);
-        return res.status(500).json({ message: 'Server error during account reactivation' });
     }
 };
+
 
 const getProfile = async (req, res) => {
     try {
@@ -267,105 +270,113 @@ const getProfile = async (req, res) => {
 };
 
 const promoteToCreator = async (req, res) => {
+    const transaction = await sequelize.transaction();
     try {
         const userId = req.params.id;
 
-        const user = await models.users.findByPk(userId);
+        const user = await User.findByPk(userId, { transaction });
         if (!user) {
+            await transaction.rollback();
             return res.status(404).json({ message: "User not found" });
         }
 
-        const creatorRole = await models.roles.findOne({
-            where: { roleName: "Creator" }
+        const creatorRole = await Role.findOne({
+            where: { roleName: "Creator" },
+            transaction
         });
 
-        if (!creatorRole) {
-            return res.status(500).json({ message: "Role 'Creator' not found in database" });
-        }
-
-        // Zaktualizuj rolę
-        user.roleID = creatorRole.roleID;
-        await user.save();
-
-        // Sprawdź czy creatorProfile istnieje
-        const existingProfile = await models.creatorprofiles.findOne({
-            where: { userID: userId }
-        });
-
-        // Jeśli nie istnieje -> utwórz nowy
-        if (!existingProfile) {
-            await models.creatorprofiles.create({
-                userID: userId,
-                bio: null,
-                verified: "N",
-                numberOfFollowers: 0
+        if (user.roleID === creatorRole.roleID) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "User is already a Creator"
             });
         }
 
-        res.json({
-            message: "User promoted to Creator successfully",
-            user: {
-                id: user.userID,
-                userName: user.userName,
-                role: "Creator"
-            }
+        // zmiana roli
+        user.roleID = creatorRole.roleID;
+        await user.save({ transaction });
+
+        // creatorProfile
+        const [profile, created] = await CreatorProfile.findOrCreate({
+            where: { userID: userId },
+            defaults: {
+                bio: null,
+                numberOfFollowers: 0,
+                isActive: true
+            },
+            transaction
         });
 
-    } catch (error) {
-        console.error("Promote user error:", error);
-        res.status(500).json({ message: "Server error during promotion" });
+        if (!created && profile.isActive === false) {
+            profile.isActive = true;
+            await profile.save({ transaction });
+        }
+
+        await transaction.commit();
+
+        res.json({
+            message: "User promoted to Creator",
+            userID: userId
+        });
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error("PROMOTE ERROR:", err);
+        res.status(500).json({ message: "Server error" });
     }
 };
 
 const demoteCreator = async (req, res) => {
+    const transaction = await sequelize.transaction();
     try {
         const userId = req.params.id;
 
-        const user = await models.users.findByPk(userId, {
-            include: { model: models.roles, as: 'role' }
+        const user = await User.findByPk(userId, {
+            include: { model: Role, as: "role" },
+            transaction
         });
 
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        if (user.role.roleName !== 'Creator') {
-            return res.status(400).json({ message: 'User is not a Creator' });
-        }
-
-        const userRole = await models.roles.findOne({
-            where: { roleName: 'User' }
-        });
-
-        if (!userRole) {
-            return res.status(500).json({
-                message: 'Role "User" not found in database'
+        if (!user || user.role.roleName !== "Creator") {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "User is not a Creator"
             });
         }
 
-        // Usuń creatorProfile
-        const profile = await models.creatorprofiles.findOne({
-            where: { userID: userId }
+        const userRole = await Role.findOne({
+            where: { roleName: "User" },
+            transaction
+        });
+
+        // dezaktywuj twórcę
+        const profile = await CreatorProfile.findOne({
+            where: { userID: userId },
+            transaction
         });
 
         if (profile) {
-            await profile.destroy();
+            profile.isActive = false;
+            await profile.save({ transaction });
         }
 
-        // Zmień rolę
+        // zmień rolę
         user.roleID = userRole.roleID;
-        await user.save();
+        await user.save({ transaction });
+
+        await transaction.commit();
 
         res.json({
-            message: 'User demoted from Creator to User successfully',
-            userID: user.userID
+            message: "Creator demoted (content preserved)",
+            userID: userId
         });
 
     } catch (err) {
-        console.error("Demote user error:", err);
-        res.status(500).json({ message: "Server error during demote" });
+        await transaction.rollback();
+        console.error("DEMOTE ERROR:", err);
+        res.status(500).json({ message: "Server error" });
     }
 };
+
 
 const getAllCreators = async (req, res) => {
     try {
@@ -411,15 +422,12 @@ const getAllUsers = async (req, res) => {
     }
 };
 
-
 module.exports = {
     registerUser,
     loginUser,
-    protectedRoute,
     updateProfile,
     changePassword,
-    deactivateAccount,
-    reactivateAccount,
+    deactivateOwnAccount,
     getProfile,
     promoteToCreator,
     demoteCreator,

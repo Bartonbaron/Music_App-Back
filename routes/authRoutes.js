@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 
-const { registerUser, loginUser, protectedRoute, updateProfile, changePassword, deactivateAccount, reactivateAccount, getProfile, promoteToCreator, demoteCreator, getAllCreators, getAllUsers } = require('../controllers/authController');
+const { registerUser, loginUser, updateProfile, changePassword, deactivateOwnAccount, getProfile, promoteToCreator, demoteCreator, getAllCreators, getAllUsers } = require('../controllers/authController');
 const { authenticateToken, requireAdmin} = require('../middleware/authMiddleware');
 
 
@@ -16,9 +16,8 @@ router.get("/me", authenticateToken, (req, res) => {res.json({ user: req.user })
 
 router.put('/update', authenticateToken, updateProfile);
 router.put('/change-password', authenticateToken, changePassword);
-router.put('/deactivate/:id', authenticateToken, requireAdmin, deactivateAccount);
-router.put('/reactivate/:id', authenticateToken, requireAdmin, reactivateAccount);
-router.put('/promote/:id', authenticateToken, requireAdmin, promoteToCreator);
-router.put('/demote/:id', authenticateToken, requireAdmin, demoteCreator);
+router.put('/deactivate', authenticateToken, deactivateOwnAccount);
+router.patch('/promote/:id', authenticateToken, requireAdmin, promoteToCreator);
+router.patch('/demote/:id', authenticateToken, requireAdmin, demoteCreator);
 
 module.exports = router;

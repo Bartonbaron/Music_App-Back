@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const {models} = require('../models');
 require('dotenv').config();
+const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
 
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -21,17 +22,9 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-const requireAdmin = async (req, res, next) => {
+const requireAdmin = (req, res, next) => {
     try {
-        const user = await models.users.findByPk(req.user.id, {
-            include: { model: models.roles, as: "role" },
-        });
-
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        if (user.role.roleName !== "Administrator") {
+        if (req.user.roleID !== ADMIN_ROLE_ID) {
             return res.status(403).json({ message: "Admin role required" });
         }
 
@@ -44,24 +37,30 @@ const requireAdmin = async (req, res, next) => {
 
 const requireCreator = async (req, res, next) => {
     try {
-        const user = await models.users.findByPk(req.user.id, {
-            include: { model: models.roles, as: "role" },
+        const profile = await models.creatorprofiles.findOne({
+            where: {
+                userID: req.user.id,
+                isActive: true
+            }
         });
 
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
+        if (!profile) {
+            return res.status(403).json({
+                message: "Active creator account required"
+            });
         }
 
-        if (user.role.roleName !== "Creator") {
-            return res.status(403).json({ message: "Creator role required" });
-        }
+        req.user.creatorID = profile.creatorID;
 
         next();
     } catch (error) {
         console.error("Creator check error:", error);
-        res.status(500).json({ message: "Server error while checking creator role" });
+        res.status(500).json({
+            message: "Server error while checking creator role"
+        });
     }
 };
+
 
 module.exports = { authenticateToken, requireAdmin, requireCreator };
 

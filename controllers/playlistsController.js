@@ -85,13 +85,20 @@ const getUserPlaylists = async (req, res) => {
 const getPlaylist = async (req, res) => {
     try {
         const playlist = await Playlist.findByPk(req.params.id);
-
-        if (!playlist)
+        if (!playlist) {
             return res.status(404).json({ message: "Playlist not found" });
+        }
 
-        // prywatna -> tylko właściciel
+        if (playlist.moderationStatus !== "ACTIVE") {
+            return res.status(403).json({
+                message: "Playlist is not available"
+            });
+        }
+
         if (playlist.visibility === "R" && playlist.userID !== req.user.id) {
-            return res.status(403).json({ message: "This playlist is private" });
+            return res.status(403).json({
+                message: "This playlist is private"
+            });
         }
 
         res.json({

@@ -37,6 +37,11 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: true,
       defaultValue: "P"
     },
+    moderationStatus: {
+      type: DataTypes.ENUM("ACTIVE", "HIDDEN"),
+      allowNull: false,
+      defaultValue: "ACTIVE"
+    },
     isCollaborative: {
       type: DataTypes.CHAR(1),
       allowNull: true,

@@ -27,55 +27,72 @@ const getSong = async (req, res) => {
         const { songID } = req.params;
 
         const song = await Song.findByPk(songID);
-        if (!song) return res.status(404).json({ message: "Song not found" });
+        if (!song) {
+            return res.status(404).json({ message: "Song not found" });
+        }
 
-        const audioKey = song.fileURL.split(".amazonaws.com/")[1];
-        const coverKey = song.coverURL.split(".amazonaws.com/")[1];
+        if (song.moderationStatus !== "ACTIVE") {
+            return res.status(403).json({
+                message: "This song is not available"
+            });
+        }
 
-        const signedAudio = await generateSignedUrl(audioKey);
-        const signedCover = await generateSignedUrl(coverKey);
+        const audioKey = song.fileURL
+            ? song.fileURL.split(".amazonaws.com/")[1]
+            : null;
 
-        return res.json({
+        const coverKey = song.coverURL
+            ? song.coverURL.split(".amazonaws.com/")[1]
+            : null;
+
+        res.json({
             songID: song.songID,
-            title: song.title,
-            artist: song.artist,
+            songName: song.songName,
             duration: song.duration,
-            signedAudio,
-            signedCover
+            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+            signedCover: coverKey ? await generateSignedUrl(coverKey) : null
         });
 
     } catch (err) {
         console.error("GET SONG ERROR:", err);
-        return res.status(500).json({ message: "Server error" });
+        res.status(500).json({ message: "Server error" });
     }
 };
 
 // Lista utworów
 const getSongsList = async (req, res) => {
     try {
-        const songs = await Song.findAll();
+        const songs = await Song.findAll({
+            where: {
+                moderationStatus: "ACTIVE"
+            }
+        });
 
         const result = await Promise.all(
             songs.map(async (song) => {
-                const audioKey = song.fileURL.split(".amazonaws.com/")[1];
-                const coverKey = song.coverURL.split(".amazonaws.com/")[1];
+                const audioKey = song.fileURL
+                    ? song.fileURL.split(".amazonaws.com/")[1]
+                    : null;
+
+                const coverKey = song.coverURL
+                    ? song.coverURL.split(".amazonaws.com/")[1]
+                    : null;
 
                 return {
                     songID: song.songID,
-                    title: song.title,
-                    artist: song.artist,
+                    songName: song.songName,
                     duration: song.duration,
-                    signedAudio: await generateSignedUrl(audioKey),
-                    signedCover: await generateSignedUrl(coverKey)
+                    signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null
                 };
             })
         );
 
-        return res.json(result);
+        res.json(result);
 
     } catch (err) {
         console.error("GET SONGS LIST ERROR:", err);
-        return res.status(500).json({ message: "Server error" });
+        res.status(500).json({ message: "Server error" });
     }
 };
 

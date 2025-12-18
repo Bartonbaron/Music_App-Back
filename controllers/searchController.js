@@ -14,7 +14,6 @@ const {
 const search = async (req, res) => {
     try {
         const q = req.query.q?.trim();
-
         if (!q || q.length < 2) {
             return res.json({
                 songs: [],
@@ -38,14 +37,18 @@ const search = async (req, res) => {
         ] = await Promise.all([
 
             Song.findAll({
-                where: { songName: { [Op.like]: like } },
+                where: {
+                    songName: { [Op.like]: like },
+                    moderationStatus: "ACTIVE"
+                },
                 limit: 10
             }),
 
             Album.findAll({
                 where: {
                     albumName: { [Op.like]: like },
-                    isPublished: true
+                    isPublished: true,
+                    moderationStatus: "ACTIVE"
                 },
                 limit: 10
             }),
@@ -53,7 +56,8 @@ const search = async (req, res) => {
             Playlist.findAll({
                 where: {
                     playlistName: { [Op.like]: like },
-                    visibility: "P"
+                    visibility: "P",
+                    moderationStatus: "ACTIVE"
                 },
                 limit: 10
             }),
@@ -61,7 +65,8 @@ const search = async (req, res) => {
             Podcast.findAll({
                 where: {
                     podcastName: { [Op.like]: like },
-                    visibility: "P"
+                    visibility: "P",
+                    moderationStatus: "ACTIVE"
                 },
                 limit: 10
             }),
@@ -74,9 +79,7 @@ const search = async (req, res) => {
                     {
                         model: Role,
                         as: "role",
-                        where: {
-                            roleName: { [Op.ne]: "ADMIN" }
-                        },
+                        where: { roleName: { [Op.ne]: "ADMIN" } },
                         attributes: []
                     }
                 ],
@@ -85,6 +88,7 @@ const search = async (req, res) => {
             }),
 
             CreatorProfile.findAll({
+                where: { isActive: true },
                 include: [
                     {
                         model: User,
@@ -95,7 +99,7 @@ const search = async (req, res) => {
                         attributes: ["userID", "userName"]
                     }
                 ],
-                attributes: ["creatorID", "verified"],
+                attributes: ["creatorID"],
                 limit: 10
             })
         ]);
