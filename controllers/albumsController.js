@@ -638,6 +638,99 @@ const deleteAlbumCover = async (req, res) => {
     }
 };
 
+const publishAlbum = async (req, res) => {
+    const t = await sequelize.transaction();
+
+    try {
+        const { albumName, description, releaseDate, genreID, tracks } = req.body;
+        const creatorID = req.user.creatorID;
+
+        // Walidacje podstawowe
+        if (!albumName || !genreID) {
+            await t.rollback();
+            return res.status(400).json({
+                message: "albumName and genreID are required"
+            });
+        }
+
+        if (!Array.isArray(tracks) || tracks.length === 0) {
+            await t.rollback();
+            return res.status(400).json({
+                message: "Album must contain at least one track"
+            });
+        }
+
+        // Sprawdzenie duplikatów trackNumber
+        const trackNumbers = tracks.map(t => t.trackNumber);
+        const uniqueTrackNumbers = new Set(trackNumbers);
+        if (trackNumbers.length !== uniqueTrackNumbers.size) {
+            await t.rollback();
+            return res.status(400).json({
+                message: "Duplicate track numbers are not allowed"
+            });
+        }
+
+        // Utwórz album
+        const album = await Album.create({
+            albumName,
+            description: description || null,
+            releaseDate: releaseDate || null,
+            genreID,
+            creatorID,
+            isPublished: true,
+            moderationStatus: "ACTIVE"
+        }, { transaction: t });
+
+        // Pobierz wszystkie utwory
+        const songIDs = tracks.map(t => t.songID);
+
+        const songs = await Song.findAll({
+            where: {
+                songID: songIDs,
+                creatorID,
+                albumID: null,
+                moderationStatus: "ACTIVE"
+            },
+            transaction: t
+        });
+
+        if (songs.length !== tracks.length) {
+            await t.rollback();
+            return res.status(400).json({
+                message: "Some tracks are invalid, already assigned to an album, or do not belong to you"
+            });
+        }
+
+        // Przypisz utwory do albumu
+        for (const track of tracks) {
+            await Song.update(
+                {
+                    albumID: album.albumID,
+                    trackNumber: track.trackNumber
+                },
+                {
+                    where: { songID: track.songID },
+                    transaction: t
+                }
+            );
+        }
+
+        await t.commit();
+
+        res.status(201).json({
+            message: "Album published successfully",
+            albumID: album.albumID
+        });
+
+    } catch (err) {
+        await t.rollback();
+        console.error("PUBLISH ALBUM ERROR:", err);
+        res.status(500).json({
+            message: "Server error while publishing album"
+        });
+    }
+};
+
 module.exports = {
     getAllAlbums,
     getAlbum,
@@ -652,7 +745,8 @@ module.exports = {
     removeSongFromAlbum,
     reorderAlbumSongs,
     uploadAlbumCover,
-    deleteAlbumCover
+    deleteAlbumCover,
+    publishAlbum
 };
 
 

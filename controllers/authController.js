@@ -114,6 +114,12 @@ const loginUser = async (req, res) => {
     }
 };
 
+const logoutUser = async (req, res) => {
+    return res.json({
+        message: "Logged out successfully"
+    });
+};
+
 // Aktualizacja profilu użytkownika
 const updateProfile = async (req, res) => {
     try {
@@ -425,6 +431,7 @@ const getAllUsers = async (req, res) => {
 module.exports = {
     registerUser,
     loginUser,
+    logoutUser,
     updateProfile,
     changePassword,
     deactivateOwnAccount,

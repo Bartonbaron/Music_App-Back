@@ -4,8 +4,9 @@ const router = express.Router();
 const uploadCoverM = require("../middleware/uploadCoverM");
 
 const {getAllAlbums, getAlbum, getAlbumSongs, addAlbumToLibrary, removeAlbumFromLibrary,
-    createAlbum, updateAlbum, deleteAlbum, addSongToAlbum, addSongsToAlbumBulk,
-    removeSongFromAlbum, reorderAlbumSongs, uploadAlbumCover, deleteAlbumCover} = require("../controllers/albumsController");
+    createAlbum, updateAlbum, deleteAlbum, addSongToAlbum,
+    addSongsToAlbumBulk, removeSongFromAlbum, reorderAlbumSongs,
+    uploadAlbumCover, deleteAlbumCover, publishAlbum} = require("../controllers/albumsController");
 
 const {authenticateToken, requireCreator} = require("../middleware/authMiddleware");
 
@@ -27,6 +28,9 @@ router.post("/:id/cover", authenticateToken, requireCreator,
 
 // Dodawanie wielu utworów jednocześnie
 router.post("/:albumID/songs", authenticateToken, requireCreator, addSongsToAlbumBulk);
+
+// Dodanie albumu wraz z utworami (jeden request)
+router.post("/publish", authenticateToken, requireCreator, publishAlbum);
 
 router.delete("/:albumID/songs/:songID", authenticateToken, requireCreator, removeSongFromAlbum);
 
