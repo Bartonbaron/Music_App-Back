@@ -121,7 +121,7 @@ const getPodcast = async (req, res) => {
 
         const creator = await CreatorProfile.findOne({
             where: { creatorID: podcast.creatorID },
-            attributes: ["creatorID", "userID", "bio", "verified"]
+            attributes: ["creatorID", "userID", "bio"]
         });
 
         res.json({
@@ -155,7 +155,7 @@ const getAllPodcasts = async (req, res) => {
             podcasts.map(async (p) => {
                 const creator = await CreatorProfile.findOne({
                     where: { creatorID: p.creatorID },
-                    attributes: ["creatorID", "userID", "bio", "verified"]
+                    attributes: ["creatorID", "userID", "bio"]
                 });
 
                 return {

@@ -50,12 +50,11 @@ const getCreatorProfile = async (req, res) => {
     }
 };
 
-
 // Edytuj profil twórcy (bio)
 const updateCreatorProfile = async (req, res) => {
     try {
         const { id } = req.params;
-        const { bio, verified } = req.body;
+        const { bio } = req.body;
 
         const creator = await Creator.findByPk(id);
 
@@ -68,11 +67,6 @@ const updateCreatorProfile = async (req, res) => {
         }
 
         if (bio !== undefined) creator.bio = bio;
-
-        // verified można zmieniać tylko jako administrator
-        if (verified !== undefined && req.user.role === "Administrator") {
-            creator.verified = verified ? "Y" : "N";
-        }
 
         await creator.save();
 

@@ -27,7 +27,7 @@ const getAllAlbums = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
-                    attributes: ["creatorID", "userID", "verified"]
+                    attributes: ["creatorID", "userID"]
                 }
             ],
             order: [["createdAt", "DESC"]]
@@ -57,7 +57,7 @@ const getAlbum = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
-                    attributes: ["creatorID", "userID", "verified"]
+                    attributes: ["creatorID", "userID"]
                 }
             ]
         });
