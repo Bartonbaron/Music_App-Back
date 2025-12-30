@@ -6,6 +6,7 @@ const {Op} = require("sequelize");
 const { sequelize, models } = require("../models");
 const Song = models.songs;
 const CreatorProfile = models.creatorprofiles;
+const User = models.users;
 const UserSongLikes = models.usersonglikes;
 const FavoriteSongs = models.favoritesongs;
 const StreamHistory = models.streamhistory;
@@ -64,8 +65,22 @@ const getSongsList = async (req, res) => {
     try {
         const songs = await Song.findAll({
             where: {
-                moderationStatus: "ACTIVE"
-            }
+                moderationStatus: "ACTIVE"},
+            include: [
+                {
+                    model: CreatorProfile,
+                    as: "creator",
+                    attributes: ["creatorID"],
+                    include: [
+                        {
+                            model: User,
+                            as: "user",
+                            attributes: ["userID", "userName"],
+                        },
+                    ],
+                },
+            ],
+            order: [["createdAt", "DESC"]],
         });
 
         const result = await Promise.all(
@@ -81,6 +96,8 @@ const getSongsList = async (req, res) => {
                 return {
                     songID: song.songID,
                     songName: song.songName,
+                    creatorID: song.creatorID,
+                    creatorName: song.creator?.user?.userName ?? null,
                     duration: song.duration,
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null

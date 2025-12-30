@@ -10,6 +10,7 @@ const Song = models.songs;
 const Library = models.library;
 const LibraryAlbums = models.libraryalbums;
 const CreatorProfile = models.creatorprofiles;
+const User = models.users;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
@@ -27,7 +28,14 @@ const getAllAlbums = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
-                    attributes: ["creatorID", "userID"]
+                    attributes: ["creatorID", "userID"],
+                    include: [
+                        {
+                            model: User,
+                            as: "user",
+                            attributes: ["userID", "userName"]
+                        }
+                    ]
                 }
             ],
             order: [["createdAt", "DESC"]]
@@ -57,7 +65,14 @@ const getAlbum = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
-                    attributes: ["creatorID", "userID"]
+                    attributes: ["creatorID", "userID"],
+                    include: [
+                        {
+                            model: User,
+                            as: "user",
+                            attributes: ["userID", "userName"]
+                        }
+                    ]
                 }
             ]
         });
@@ -106,6 +121,10 @@ const getAlbumSongs = async (req, res) => {
             return res.status(404).json({ message: "Album not found" });
         }
 
+        if (album.moderationStatus !== "ACTIVE") {
+            return res.status(403).json({ message: "Album is not available" });
+        }
+
         // premiera
         if (!album.isPublished) {
             const creator = await CreatorProfile.findOne({
@@ -137,8 +156,13 @@ const getAlbumSongs = async (req, res) => {
             }))
         );
 
+        const albumSignedCover = album.coverURL
+            ? await generateSignedUrl(extractKey(album.coverURL))
+            : null;
+
         res.json({
             albumID: album.albumID,
+            albumSignedCover,
             count: result.length,
             songs: result
         });
