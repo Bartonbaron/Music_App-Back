@@ -2,11 +2,16 @@ const express = require("express");
 const router = express.Router();
 const {authenticateToken} = require("../middleware/authMiddleware");
 
-const { getLibrary, getLibraryPlaylists, getLibrarySongs, getLibraryPodcasts} = require("../controllers/libraryController");
+const { getLibrary, getLibraryPlaylists, getLibraryPlaylistsList,
+    getLibrarySongs, getLibraryPodcasts, getLibraryAlbums} = require("../controllers/libraryController");
 
 router.get("/", authenticateToken, getLibrary);
 
 router.get("/playlists", authenticateToken, getLibraryPlaylists);
+
+router.get("/playlists/list", authenticateToken, getLibraryPlaylistsList);
+
+router.get("/albums", authenticateToken, getLibraryAlbums);
 
 router.get("/songs", authenticateToken, getLibrarySongs);
 

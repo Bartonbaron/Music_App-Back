@@ -2,6 +2,7 @@ const { models, sequelize } = require("../models");
 const { PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 const { s3, generateSignedUrl } = require("../config/s3");
 const {Op} = require("sequelize");
+const extractKey = require("../utils/extractKey");
 const uploadCover = require("../utils/uploadCover");
 const deleteCover = require("../utils/deleteCover");
 
@@ -13,9 +14,6 @@ const CreatorProfile = models.creatorprofiles;
 const User = models.users;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
-
-const extractKey = (url) =>
-    url ? url.split(".amazonaws.com/")[1] : null;
 
 const getAllAlbums = async (req, res) => {
     try {

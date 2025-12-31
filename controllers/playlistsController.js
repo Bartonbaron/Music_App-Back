@@ -3,8 +3,7 @@ const {Op} = require("sequelize");
 
 const { generateSignedUrl } = require("../config/s3");
 
-const extractKey = (url) =>
-    url ? url.split(".amazonaws.com/")[1] : null;
+const extractKey = require("../utils/extractKey");
 
 const {canAccessPlaylist, canEditPlaylist} = require("../utils/playlistPermissions");
 const uploadCover = require("../utils/uploadCover");
@@ -15,6 +14,7 @@ const {PutObjectCommand} = require("@aws-sdk/client-s3");
 const Playlist = models.playlists;
 const Song = models.songs;
 const User = models.users;
+const CreatorProfile = models.creatorprofiles;
 const PlaylistSongs = models.playlistsongs;
 const PlaylistActivity = models.playlistactivities;
 const Library = models.library;
@@ -35,6 +35,14 @@ const createPlaylist = async (req, res) => {
             userID: req.user.id,
             coverURL: null
         });
+
+        const library = await Library.findOne({ where: { userID: req.user.id } });
+        if (library) {
+            await LibraryPlaylists.findOrCreate({
+                where: { libraryID: library.libraryID, playlistID: playlist.playlistID },
+                defaults: { libraryID: library.libraryID, playlistID: playlist.playlistID },
+            });
+        }
 
         if (coverFile) {
             const coverURL = await uploadCover({
@@ -57,7 +65,6 @@ const createPlaylist = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 const getUserPlaylists = async (req, res) => {
     try {
@@ -84,7 +91,15 @@ const getUserPlaylists = async (req, res) => {
 
 const getPlaylist = async (req, res) => {
     try {
-        const playlist = await Playlist.findByPk(req.params.id);
+        const playlist = await Playlist.findByPk(req.params.id, {
+            include: [
+                {
+                    model: User,
+                    as: "user",
+                    attributes: ["userID", "userName"],
+                },
+            ],
+        });
         if (!playlist) {
             return res.status(404).json({ message: "Playlist not found" });
         }
@@ -184,27 +199,46 @@ const updatePlaylist = async (req, res) => {
 };
 
 const deletePlaylist = async (req, res) => {
+    const t = await Playlist.sequelize.transaction();
+    let coverURL = null;
+
     try {
-        const playlist = await Playlist.findByPk(req.params.id);
+        const playlist = await Playlist.findByPk(req.params.id, { transaction: t });
 
-        if (!playlist)
+        if (!playlist) {
+            await t.rollback();
             return res.status(404).json({ message: "Playlist not found" });
-
-        if (playlist.userID !== req.user.id)
-            return res.status(403).json({ message: "You can delete only your own playlists" });
-
-        await playlist.destroy();
-
-        const count = await Playlist.count();
-        if (count === 0) {
-            await Playlist.sequelize.query("ALTER TABLE playlists AUTO_INCREMENT = 1;");
         }
 
-        res.json({ message: "Playlist deleted" });
+        if (playlist.userID !== req.user.id) {
+            await t.rollback();
+            return res.status(403).json({ message: "You can delete only your own playlists" });
+        }
 
+        const playlistID = playlist.playlistID;
+        coverURL = playlist.coverURL || null;
+
+        await LibraryPlaylists.destroy({ where: { playlistID }, transaction: t });
+        await PlaylistSongs.destroy({ where: { playlistID }, transaction: t });
+        await PlaylistActivity.destroy({ where: { playlistID }, transaction: t });
+
+        await playlist.destroy({ transaction: t });
+
+        await t.commit();
+
+        if (coverURL) {
+            try {
+                await deleteCover({ oldURL: coverURL });
+            } catch (e) {
+                console.warn("DELETE PLAYLIST COVER FAILED (post-commit):", e?.message || e);
+            }
+        }
+
+        return res.json({ message: "Playlist deleted" });
     } catch (err) {
+        try { await t.rollback(); } catch (_) {}
         console.error("DELETE PLAYLIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -330,9 +364,10 @@ const removeSongFromPlaylist = async (req, res) => {
 
 const getPlaylistSongs = async (req, res) => {
     try {
-        const playlist = await Playlist.findByPk(req.params.id);
-        if (!playlist)
-            return res.status(404).json({ message: "Playlist not found" });
+        const playlistID = req.params.id;
+
+        const playlist = await Playlist.findByPk(playlistID);
+        if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
         if (!canAccessPlaylist(playlist, req.user.id)) {
             return res.status(403).json({ message: "This playlist is private" });
@@ -343,26 +378,40 @@ const getPlaylistSongs = async (req, res) => {
             include: [
                 {
                     model: Song,
-                    as: "song"
-                }
+                    as: "song",
+                    include: [
+                        {
+                            model: CreatorProfile,
+                            as: "creator",
+                            include: [{ model: User, as: "user", attributes: ["userID", "userName"] }],
+                        },
+                    ],
+                },
             ],
             order: [["position", "ASC"]],
         });
 
         const result = await Promise.all(
-            items.map(async (item) => ({
-                playlistSongID: item.playlistSongID,
-                position: item.position,
-                song: {
-                    ...item.song.toJSON(),
-                    signedAudio: item.song.fileURL
-                        ? await generateSignedUrl(extractKey(item.song.fileURL))
+            items.map(async (item) => {
+                const s = item.song;
+
+                return {
+                    playlistSongID: item.playlistSongID,
+                    position: item.position,
+
+                    creatorName: s?.creator?.user?.userName ?? null,
+
+                    song: s
+                        ? {
+                            ...s.toJSON(),
+                            creatorName: s.creator?.user?.userName ?? null,
+
+                            signedAudio: s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null,
+                            signedCover: s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null,
+                        }
                         : null,
-                    signedCover: item.song.coverURL
-                        ? await generateSignedUrl(extractKey(item.song.coverURL))
-                        : null
-                }
-            }))
+                };
+            })
         );
 
         res.json(result);
@@ -414,7 +463,6 @@ const addPlaylistToLibrary = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 const reorderPlaylistSongs = async (req, res) => {
     try {
