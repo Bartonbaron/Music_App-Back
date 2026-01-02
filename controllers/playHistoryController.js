@@ -13,14 +13,26 @@ const getHistory = async (req, res) => {
     try {
         const userID = req.user.id;
 
+        const User = models.users;
+
         const items = await PlayHistory.findAll({
             where: { userID },
             include: [
-                { model: Song, as: "song" },
-                { model: Podcast, as: "podcast" }
+                {
+                    model: Song,
+                    as: "song",
+                    include: [
+                        {
+                            model: CreatorProfile,
+                            as: "creator",
+                            include: [{ model: User, as: "user", attributes: ["userName"] }],
+                        },
+                    ],
+                },
+                { model: Podcast, as: "podcast" },
             ],
             order: [["playedAt", "DESC"]],
-            limit: 100
+            limit: 100,
         });
 
         const result = await Promise.all(
