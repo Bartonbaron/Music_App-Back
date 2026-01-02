@@ -216,12 +216,62 @@ const getLibraryAlbums = async (req, res) => {
     }
 };
 
+const getLikedSongsList = async (req, res) => {
+    try {
+        const userID = req.user.id;
+
+        const favorites = await FavoriteSongs.findAll({
+            where: { userID },
+            include: [
+                {
+                    model: Song,
+                    as: "song",
+                    include: [
+                        {
+                            model: CreatorProfile,
+                            as: "creator",
+                            include: [{ model: User, as: "user", attributes: ["userID", "userName"] }],
+                        },
+                    ],
+                },
+            ],
+            order: [["addedAt", "DESC"]],
+        });
+
+        const result = await Promise.all(
+            favorites.map(async (f) => {
+                const s = f.song;
+                if (!s) return null;
+
+                return {
+                    addedAt: f.addedAt,
+                    songID: s.songID,
+                    songName: s.songName,
+                    duration: s.duration,
+                    likeCount: s.likeCount ?? 0,
+
+                    creatorName: s?.creator?.user?.userName ?? null,
+
+                    signedAudio: s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null,
+                    signedCover: s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null,
+                };
+            })
+        );
+
+        res.json(result.filter(Boolean));
+    } catch (err) {
+        console.error("GET LIKED SONGS ERROR:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
     getLibrary,
     getLibrarySongs,
     getLibraryPodcasts,
     getLibraryPlaylists,
     getLibraryPlaylistsList,
-    getLibraryAlbums
+    getLibraryAlbums,
+    getLikedSongsList
 }
 

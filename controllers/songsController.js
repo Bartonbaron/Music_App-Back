@@ -274,43 +274,33 @@ const incrementStreamCount = async (req, res) => {
         const userID = req.user?.id;
 
         const song = await Song.findByPk(songID);
-        if (!song) {
-            return res.status(404).json({ message: "Song not found" });
-        }
+        if (!song) return res.status(404).json({ message: "Song not found" });
 
         const recent = await StreamHistory.findOne({
             where: {
                 userID,
                 targetType: "song",
                 targetID: songID,
-                createdAt: {
-                    [Op.gt]: new Date(Date.now() - 24 * 60 * 60 * 1000)
-                }
-            }
+                createdAt: { [Op.gt]: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+            },
         });
 
         if (recent) {
-            return res.json({ message: "Stream already counted recently" });
+            return res.json({ message: "Stream already counted recently", streamCount: song.streamCount });
         }
 
-        await song.increment("streamCount");
+        await song.increment("streamCount", { by: 1 });
+        await StreamHistory.create({ userID, targetType: "song", targetID: songID });
 
-        await StreamHistory.create({
-            userID,
-            targetType: "song",
-            targetID: songID
-        });
+        await song.reload();
 
-        res.json({
-            message: "Stream counted",
-            streamCount: song.streamCount + 1
-        });
-
+        return res.json({ message: "Stream counted", streamCount: song.streamCount });
     } catch (err) {
         console.error("STREAM ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
+
 
 // Polubienie utworu
 const likeSong = async (req, res) => {

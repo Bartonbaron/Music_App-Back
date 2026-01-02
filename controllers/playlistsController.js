@@ -21,48 +21,70 @@ const Library = models.library;
 const LibraryPlaylists = models.libraryplaylists;
 
 const createPlaylist = async (req, res) => {
+    const t = await Playlist.sequelize.transaction();
     try {
         const { playlistName, description } = req.body;
         const coverFile = req.files?.cover?.[0];
 
         if (!playlistName) {
+            await t.rollback();
             return res.status(400).json({ message: "Playlist name is required" });
         }
 
-        const playlist = await Playlist.create({
-            playlistName,
-            description: description || null,
-            userID: req.user.id,
-            coverURL: null
+        const playlist = await Playlist.create(
+            {
+                playlistName,
+                description: description || null,
+                userID: req.user.id,
+                coverURL: null,
+            },
+            { transaction: t }
+        );
+
+        const [library] = await Library.findOrCreate({
+            where: { userID: req.user.id },
+            defaults: { userID: req.user.id },
+            transaction: t,
         });
 
-        const library = await Library.findOne({ where: { userID: req.user.id } });
-        if (library) {
-            await LibraryPlaylists.findOrCreate({
-                where: { libraryID: library.libraryID, playlistID: playlist.playlistID },
-                defaults: { libraryID: library.libraryID, playlistID: playlist.playlistID },
-            });
-        }
+        await LibraryPlaylists.findOrCreate({
+            where: { libraryID: library.libraryID, playlistID: playlist.playlistID },
+            defaults: { libraryID: library.libraryID, playlistID: playlist.playlistID },
+            transaction: t,
+        });
+
+        await t.commit();
 
         if (coverFile) {
-            const coverURL = await uploadCover({
-                file: coverFile,
-                oldURL: null,
-                folder: "covers/playlists",
-                filename: playlist.playlistID
-            });
+            try {
+                const coverURL = await uploadCover({
+                    file: coverFile,
+                    oldURL: null,
+                    folder: "covers/playlists",
+                    filename: playlist.playlistID,
+                });
 
-            await playlist.update({ coverURL });
+                await playlist.update({ coverURL });
+            } catch (e) {
+                console.error("PLAYLIST COVER UPLOAD ERROR:", e);
+            }
         }
 
-        res.status(201).json({
-            message: "Playlist created",
-            playlist
-        });
+        const fresh = await Playlist.findByPk(playlist.playlistID);
 
+        return res.status(201).json({
+            message: "Playlist created",
+            playlist: {
+                ...(fresh ? fresh.toJSON() : playlist.toJSON()),
+                signedCover: (fresh?.coverURL || playlist.coverURL)
+                    ? await generateSignedUrl(extractKey(fresh?.coverURL || playlist.coverURL))
+                    : null,
+            },
+        });
     } catch (err) {
+        await t.rollback();
         console.error("CREATE PLAYLIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
