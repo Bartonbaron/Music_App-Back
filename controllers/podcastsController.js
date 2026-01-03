@@ -6,6 +6,7 @@ const {Op} = require("sequelize");
 const { models, sequelize } = require("../models");
 const Podcast = models.podcasts;
 const CreatorProfile = models.creatorprofiles;
+const User = models.users;
 const FavoritePodcasts = models.favoritepodcasts;
 const StreamHistory = models.streamhistory;
 
@@ -104,75 +105,90 @@ const uploadPodcast = async (req, res) => {
     }
 };
 
-
 // GET ONE PODCAST + CREATOR DETAILS
 const getPodcast = async (req, res) => {
     try {
-        const podcast = await Podcast.findByPk(req.params.id);
+        const User = models.users;
+
+        const podcast = await Podcast.findByPk(req.params.id, {
+            include: [
+                {
+                    model: CreatorProfile,
+                    as: "creator",
+                    attributes: ["creatorID", "userID", "bio"],
+                    include: [
+                        {
+                            model: User,
+                            as: "user",
+                            attributes: ["userName"],
+                        },
+                    ],
+                },
+            ],
+        });
+
         if (!podcast) {
             return res.status(404).json({ message: "Podcast not found" });
         }
 
         if (podcast.moderationStatus !== "ACTIVE") {
-            return res.status(403).json({
-                message: "This podcast is not available"
-            });
+            return res.status(403).json({ message: "This podcast is not available" });
         }
-
-        const creator = await CreatorProfile.findOne({
-            where: { creatorID: podcast.creatorID },
-            attributes: ["creatorID", "userID", "bio"]
-        });
 
         res.json({
             ...podcast.toJSON(),
-            creator,
+            creatorName: podcast?.creator?.user?.userName ?? null,
             signedAudio: podcast.fileURL
                 ? await generateSignedUrl(extractKey(podcast.fileURL))
                 : null,
             signedCover: podcast.coverURL
                 ? await generateSignedUrl(extractKey(podcast.coverURL))
-                : null
+                : null,
         });
-
     } catch (err) {
         console.error("GET PODCAST ERROR:", err);
         res.status(500).json({ message: "Server error" });
     }
 };
 
+
 // GET ALL PODCASTS + CREATOR DETAILS
 const getAllPodcasts = async (req, res) => {
     try {
+        const User = models.users;
+
         const podcasts = await Podcast.findAll({
             where: {
                 visibility: "P",
-                moderationStatus: "ACTIVE"
-            }
+                moderationStatus: "ACTIVE",
+            },
+            include: [
+                {
+                    model: CreatorProfile,
+                    as: "creator",
+                    attributes: ["creatorID", "userID", "bio"],
+                    include: [
+                        {
+                            model: User,
+                            as: "user",
+                            attributes: ["userName"],
+                        },
+                    ],
+                },
+            ],
+            order: [["releaseDate", "DESC"]],
         });
 
         const result = await Promise.all(
-            podcasts.map(async (p) => {
-                const creator = await CreatorProfile.findOne({
-                    where: { creatorID: p.creatorID },
-                    attributes: ["creatorID", "userID", "bio"]
-                });
-
-                return {
-                    ...p.toJSON(),
-                    creator,
-                    signedAudio: p.fileURL
-                        ? await generateSignedUrl(extractKey(p.fileURL))
-                        : null,
-                    signedCover: p.coverURL
-                        ? await generateSignedUrl(extractKey(p.coverURL))
-                        : null
-                };
-            })
+            podcasts.map(async (p) => ({
+                ...p.toJSON(),
+                creatorName: p?.creator?.user?.userName ?? null,
+                signedAudio: p.fileURL ? await generateSignedUrl(extractKey(p.fileURL)) : null,
+                signedCover: p.coverURL ? await generateSignedUrl(extractKey(p.coverURL)) : null,
+            }))
         );
 
         res.json(result);
-
     } catch (err) {
         console.error("GET PODCAST LIST ERROR:", err);
         res.status(500).json({ message: "Server error" });

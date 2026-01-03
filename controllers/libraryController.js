@@ -265,6 +265,63 @@ const getLikedSongsList = async (req, res) => {
     }
 };
 
+const getFavoritePodcasts = async (req, res) => {
+    try {
+        const userID = req.user.id;
+
+        const rows = await FavoritePodcasts.findAll({
+            where: { userID },
+            include: [
+                {
+                    model: Podcast,
+                    as: "podcast",
+                    where: { moderationStatus: "ACTIVE" },
+                    include: [
+                        {
+                            model: CreatorProfile,
+                            as: "creator",
+                            attributes: ["creatorID"],
+                            include: [
+                                {
+                                    model: User,
+                                    as: "user",
+                                    attributes: ["userName"],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+            order: [["addedAt", "DESC"]],
+        });
+
+        const result = await Promise.all(
+            rows.map(async (row) => {
+                const p = row.podcast;
+                if (!p) return null;
+
+                return {
+                    podcastID: p.podcastID,
+                    podcastName: p.podcastName,
+                    duration: p.duration,
+                    creatorName: p?.creator?.user?.userName ?? null,
+                    signedAudio: p.fileURL
+                        ? await generateSignedUrl(extractKey(p.fileURL))
+                        : null,
+                    signedCover: p.coverURL
+                        ? await generateSignedUrl(extractKey(p.coverURL))
+                        : null,
+                };
+            })
+        );
+
+        res.json(result.filter(Boolean));
+    } catch (err) {
+        console.error("GET FAVORITE PODCASTS ERROR:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
     getLibrary,
     getLibrarySongs,
@@ -272,6 +329,7 @@ module.exports = {
     getLibraryPlaylists,
     getLibraryPlaylistsList,
     getLibraryAlbums,
-    getLikedSongsList
+    getLikedSongsList,
+    getFavoritePodcasts
 }
 
