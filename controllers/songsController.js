@@ -7,11 +7,13 @@ const { sequelize, models } = require("../models");
 const Song = models.songs;
 const CreatorProfile = models.creatorprofiles;
 const User = models.users;
+const Album = models.albums;
 const UserSongLikes = models.usersonglikes;
 const FavoriteSongs = models.favoritesongs;
 const StreamHistory = models.streamhistory;
 
 const { generateSignedUrl } = require("../config/s3");
+const extractKey = require("../utils/Extractkey");
 
 require("dotenv").config();
 
@@ -23,18 +25,38 @@ const s3 = new S3Client({
     }
 });
 
+// Pojedynczy utwór
 const getSong = async (req, res) => {
     try {
         const { songID } = req.params;
 
-        const song = await Song.findByPk(songID);
+        const song = await Song.findByPk(songID, {
+            include: [
+                {
+                    model: CreatorProfile,
+                    as: "creator",
+                    include: [
+                        {
+                            model: User,
+                            as: "user",
+                            attributes: ["userID", "userName"],
+                        },
+                    ],
+                },
+                {
+                    model: Album,
+                    as: "album",
+                },
+            ],
+        });
+
         if (!song) {
             return res.status(404).json({ message: "Song not found" });
         }
 
         if (song.moderationStatus !== "ACTIVE") {
             return res.status(403).json({
-                message: "This song is not available"
+                message: "This song is not available",
             });
         }
 
@@ -46,14 +68,30 @@ const getSong = async (req, res) => {
             ? song.coverURL.split(".amazonaws.com/")[1]
             : null;
 
+        const albumCoverKey = song.album?.coverURL
+            ? song.album.coverURL.split(".amazonaws.com/")[1]
+            : null;
+
         res.json({
             songID: song.songID,
             songName: song.songName,
             duration: song.duration,
-            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
-            signedCover: coverKey ? await generateSignedUrl(coverKey) : null
-        });
 
+            creatorName: song.creator?.user?.userName ?? null,
+
+            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+            signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
+
+            album: song.album
+                ? {
+                    albumID: song.album.albumID,
+                    albumName: song.album.albumName,
+                    signedCover: albumCoverKey
+                        ? await generateSignedUrl(albumCoverKey)
+                        : null,
+                }
+                : null,
+        });
     } catch (err) {
         console.error("GET SONG ERROR:", err);
         res.status(500).json({ message: "Server error" });
@@ -64,19 +102,14 @@ const getSong = async (req, res) => {
 const getSongsList = async (req, res) => {
     try {
         const songs = await Song.findAll({
-            where: {
-                moderationStatus: "ACTIVE"},
+            where: { moderationStatus: "ACTIVE" },
             include: [
                 {
                     model: CreatorProfile,
                     as: "creator",
                     attributes: ["creatorID"],
                     include: [
-                        {
-                            model: User,
-                            as: "user",
-                            attributes: ["userID", "userName"],
-                        },
+                        { model: User, as: "user", attributes: ["userID", "userName"] },
                     ],
                 },
             ],
@@ -85,13 +118,8 @@ const getSongsList = async (req, res) => {
 
         const result = await Promise.all(
             songs.map(async (song) => {
-                const audioKey = song.fileURL
-                    ? song.fileURL.split(".amazonaws.com/")[1]
-                    : null;
-
-                const coverKey = song.coverURL
-                    ? song.coverURL.split(".amazonaws.com/")[1]
-                    : null;
+                const audioKey = extractKey(song.fileURL);
+                const coverKey = extractKey(song.coverURL);
 
                 return {
                     songID: song.songID,
@@ -100,13 +128,12 @@ const getSongsList = async (req, res) => {
                     creatorName: song.creator?.user?.userName ?? null,
                     duration: song.duration,
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
-                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null
+                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };
             })
         );
 
         res.json(result);
-
     } catch (err) {
         console.error("GET SONGS LIST ERROR:", err);
         res.status(500).json({ message: "Server error" });

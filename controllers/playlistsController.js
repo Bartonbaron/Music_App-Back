@@ -15,6 +15,7 @@ const Playlist = models.playlists;
 const Song = models.songs;
 const User = models.users;
 const CreatorProfile = models.creatorprofiles;
+const Album = models.albums;
 const PlaylistSongs = models.playlistsongs;
 const PlaylistActivity = models.playlistactivities;
 const Library = models.library;
@@ -407,6 +408,11 @@ const getPlaylistSongs = async (req, res) => {
                             as: "creator",
                             include: [{ model: User, as: "user", attributes: ["userID", "userName"] }],
                         },
+                        {
+                            model: Album,
+                            as: "album",
+                            attributes: ["albumID", "albumName", "coverURL"],
+                        },
                     ],
                 },
             ],
@@ -416,6 +422,9 @@ const getPlaylistSongs = async (req, res) => {
         const result = await Promise.all(
             items.map(async (item) => {
                 const s = item.song;
+
+                const albumSignedCover =
+                    s?.album?.coverURL ? await generateSignedUrl(extractKey(s.album.coverURL)) : null;
 
                 return {
                     playlistSongID: item.playlistSongID,
@@ -430,6 +439,13 @@ const getPlaylistSongs = async (req, res) => {
 
                             signedAudio: s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null,
                             signedCover: s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null,
+
+                            album: s.album
+                                ? {
+                                    ...s.album.toJSON?.() ? s.album.toJSON() : s.album,
+                                    signedCover: albumSignedCover,
+                                }
+                                : null,
                         }
                         : null,
                 };

@@ -232,6 +232,11 @@ const getLikedSongsList = async (req, res) => {
                             as: "creator",
                             include: [{ model: User, as: "user", attributes: ["userID", "userName"] }],
                         },
+                        {
+                            model: Album,
+                            as: "album",
+                            attributes: ["albumID", "albumName", "coverURL"],
+                        },
                     ],
                 },
             ],
@@ -243,8 +248,18 @@ const getLikedSongsList = async (req, res) => {
                 const s = f.song;
                 if (!s) return null;
 
+                const signedAudio = s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null;
+                const signedSongCover = s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null;
+
+                const a = s.album || null;
+                const signedAlbumCover =
+                    a?.coverURL ? await generateSignedUrl(extractKey(a.coverURL)) : null;
+
+                const effectiveCover = signedSongCover || signedAlbumCover || null;
+
                 return {
                     addedAt: f.addedAt,
+
                     songID: s.songID,
                     songName: s.songName,
                     duration: s.duration,
@@ -252,8 +267,19 @@ const getLikedSongsList = async (req, res) => {
 
                     creatorName: s?.creator?.user?.userName ?? null,
 
-                    signedAudio: s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null,
-                    signedCover: s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null,
+                    signedAudio,
+
+                    signedCover: signedSongCover,          // okładka utworu (jeśli jest)
+                    album: a
+                        ? {
+                            albumID: a.albumID,
+                            albumName: a.albumName,
+                            signedCover: signedAlbumCover,    // okładka albumu
+                        }
+                        : null,
+
+                    // opcjonalnie: gotowa okładka do szybkiego użycia w UI
+                    effectiveCover,
                 };
             })
         );

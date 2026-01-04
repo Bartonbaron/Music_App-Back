@@ -12,8 +12,7 @@ const StreamHistory = models.streamhistory;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
-const extractKey = (url) =>
-    url ? url.split(".amazonaws.com/")[1] : null;
+const extractKey = require("../utils/extractKey");
 
 // UPLOAD PODCAST (Tylko twórca)
 const uploadPodcast = async (req, res) => {
@@ -150,7 +149,6 @@ const getPodcast = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 // GET ALL PODCASTS + CREATOR DETAILS
 const getAllPodcasts = async (req, res) => {
