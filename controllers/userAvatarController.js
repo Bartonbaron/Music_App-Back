@@ -1,7 +1,9 @@
 const { PutObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { s3 } = require("../config/s3");
-const {models} = require("../models");
+const { models } = require("../models");
+const { presentUser } = require("../utils/userPresenter");
 const Users = models.users;
+const Role = models.roles;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
@@ -13,7 +15,7 @@ const randomName = (original) => {
 
 const uploadAvatar = async (req, res) => {
     try {
-        const userID = req.user.id; // z JWT
+        const userID = req.user.id;
         const file = req.file;
 
         if (!file) return res.status(400).json({ message: "No file provided" });
@@ -21,19 +23,18 @@ const uploadAvatar = async (req, res) => {
         const user = await Users.findByPk(userID);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // Jeśli istnieje stary avatar -> usuwamy go z S3
         if (user.profilePicURL) {
-            const oldKey = user.profilePicURL.split(".com/")[1];
-
-            await s3.send(
-                new DeleteObjectCommand({
-                    Bucket: BUCKET,
-                    Key: oldKey,
-                })
-            );
+            const oldKey = extractKey(user.profilePicURL);
+            if (oldKey) {
+                await s3.send(
+                    new DeleteObjectCommand({
+                        Bucket: BUCKET,
+                        Key: oldKey,
+                    })
+                );
+            }
         }
 
-        // generowanie nazwy i upload
         const newKey = randomName(file.originalname);
 
         await s3.send(
@@ -47,16 +48,36 @@ const uploadAvatar = async (req, res) => {
 
         const newUrl = `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${newKey}`;
 
-        // zapis w MySQL
         await user.update({ profilePicURL: newUrl });
 
-        res.json({
+        const freshUser = await Users.findByPk(userID, {
+            attributes: [
+                "userID",
+                "userName",
+                "email",
+                "profilePicURL",
+                "status",
+                "createdAt",
+                "volume",
+                "playbackMode",
+                "autoplay",
+            ],
+            include: [
+                {
+                    model: Role,
+                    as: "role",
+                    attributes: ["roleID", "roleName"],
+                },
+            ],
+        });
+
+        return res.json({
             message: "Avatar updated!",
-            profilePicURL: newUrl,
+            user: await presentUser(freshUser),
         });
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Upload failed" });
+        console.error("UPLOAD AVATAR ERROR:", err);
+        return res.status(500).json({ message: "Upload failed" });
     }
 };
 
@@ -67,26 +88,23 @@ const deleteAvatar = async (req, res) => {
         const user = await Users.findByPk(userID);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        if (!user.profilePicURL)
+        if (!user.profilePicURL) {
             return res.status(400).json({ message: "User has no avatar" });
+        }
 
         const key = user.profilePicURL.split(".com/")[1];
 
-        // usuń plik z S3
-        await s3.send(
-            new DeleteObjectCommand({
-                Bucket: BUCKET,
-                Key: key,
-            })
-        );
+        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 
-        // usuń avatar w MySQL
         await user.update({ profilePicURL: null });
 
-        res.json({ message: "Avatar removed" });
+        return res.json({
+            message: "Avatar removed",
+            user: await presentUser(user),
+        });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ message: "Deletion failed" });
+        return res.status(500).json({ message: "Deletion failed" });
     }
 };
 

@@ -2,17 +2,14 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { sequelize, models } = require('../models');
 require('dotenv').config();
+const { Op } = require("sequelize");
 const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
 const User = models.users;
 const Role = models.roles;
 const Library = models.library;
 const CreatorProfile = models.creatorprofiles;
 
-// Walidacja hasła: min. 8 znaków, 1 duża litera, 1 cyfra, 1 znak specjalny
-const validatePassword = (password) => {
-    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{8,}$/;
-    return passwordRegex.test(password);
-};
+const { validatePassword } = require('../utils/validatePassword');
 
 // Rejestracja użytkownika
 const registerUser = async (req, res) => {
@@ -77,40 +74,40 @@ const registerUser = async (req, res) => {
 // Logowanie użytkownika
 const loginUser = async (req, res) => {
     try {
-        const { userName, password } = req.body;
+        const { userName, email, login, password } = req.body;
 
-        const user = await User.findOne({ where: { userName } });
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid credentials' });
+        const identifier = login || userName || email;
+        if (!identifier || !password) {
+            return res.status(400).json({ message: "Provide login and password" });
         }
 
-        // blokada logowania
+        const user = await User.findOne({
+            where: {
+                [Op.or]: [{ userName: identifier }, { email: identifier }],
+            },
+        });
+
+        if (!user) return res.status(401).json({ message: "Invalid credentials" });
+
         if (user.status === false) {
-            return res.status(403).json({ message: 'Account is deactivated' });
+            return res.status(403).json({ message: "Account is deactivated" });
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Invalid credentials' });
+            return res.status(401).json({ message: "Invalid credentials" });
         }
 
         const token = jwt.sign(
-            {
-                id: user.userID,
-                userName: user.userName,
-                roleID: user.roleID
-            },
+            { id: user.userID, userName: user.userName, roleID: user.roleID },
             process.env.JWT_SECRET,
-            { expiresIn: '1h' }
+            { expiresIn: "1h" }
         );
 
-        res.json({
-            message: 'Successfully logged in!',
-            token
-        });
+        return res.json({ message: "Successfully logged in!", token });
     } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({ message: 'Server error during login' });
+        console.error("Login error:", error);
+        return res.status(500).json({ message: "Server error during login" });
     }
 };
 
@@ -118,91 +115,6 @@ const logoutUser = async (req, res) => {
     return res.json({
         message: "Logged out successfully"
     });
-};
-
-// Aktualizacja profilu użytkownika
-const updateProfile = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { userName, email, profilePicURL } = req.body;
-
-        const user = await User.findByPk(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // aktualizacja tylko przesłanych pól
-        user.userName = userName || user.userName;
-        user.email = email || user.email;
-        user.profilePicURL = profilePicURL || user.profilePicURL;
-
-        if (userName && userName !== user.userName) {
-            const exists = await User.findOne({ where: { userName } });
-            if (exists) {
-                return res.status(400).json({ message: "Username already taken" });
-            }
-        }
-
-        if (email && email !== user.email) {
-            const exists = await User.findOne({ where: { email } });
-            if (exists) {
-                return res.status(400).json({ message: "Email already in use" });
-            }
-        }
-
-        await user.save();
-
-        res.json({
-            message: 'Profile updated successfully!',
-            user: {
-                id: user.userID,
-                userName: user.userName,
-                email: user.email,
-                profilePicURL: user.profilePicURL
-            }
-        });
-    } catch (error) {
-        console.error('Profile update error:', error);
-        res.status(500).json({ message: 'Server error during profile update' });
-    }
-};
-
-// Zmiana hasła
-const changePassword = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { oldPassword, newPassword } = req.body;
-
-        if (!oldPassword || !newPassword) {
-            return res.status(400).json({ message: 'Provide old and new passwords' });
-        }
-
-        if (!validatePassword(newPassword)) {
-            return res.status(400).json({
-                message:
-                    'New password must be at least 8 characters long, include one uppercase letter, one number, and one special character (!@#$%^&*)'
-            });
-        }
-
-        const user = await User.findByPk(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const isMatch = await bcrypt.compare(oldPassword, user.password);
-        if (!isMatch) {
-            return res.status(401).json({ message: 'Incorrect old password' });
-        }
-
-        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-        user.password = hashedNewPassword;
-        await user.save();
-
-        res.json({ message: 'Password changed successfully!' });
-    } catch (error) {
-        console.error('Password change error:', error);
-        res.status(500).json({ message: 'Server error during password change' });
-    }
 };
 
 const deactivateOwnAccount = async (req, res) => {
@@ -241,37 +153,6 @@ const deactivateOwnAccount = async (req, res) => {
         res.status(500).json({
             message: "Server error during account deactivation"
         });
-    }
-};
-
-
-const getProfile = async (req, res) => {
-    try {
-        const userId = req.user.id; // ID z tokena JWT
-
-        const user = await User.findByPk(userId, {
-            attributes: ['userID', 'userName', 'email', 'profilePicURL', 'status', 'createdAt'],
-            include: [
-                {
-                    model: Role,
-                    as: "role",
-                    attributes: ['roleID', 'roleName']
-                }
-            ]
-        });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        res.json({
-            message: 'User profile fetched successfully',
-            user
-        });
-
-    } catch (error) {
-        console.error('Profile fetch error:', error);
-        res.status(500).json({ message: 'Server error during profile fetch' });
     }
 };
 
@@ -432,10 +313,7 @@ module.exports = {
     registerUser,
     loginUser,
     logoutUser,
-    updateProfile,
-    changePassword,
     deactivateOwnAccount,
-    getProfile,
     promoteToCreator,
     demoteCreator,
     getAllUsers,
