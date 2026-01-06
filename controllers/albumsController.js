@@ -63,16 +63,18 @@ const getAlbum = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
-                    attributes: ["creatorID", "userID"],
+                    required: false,
+                    attributes: ["creatorID", "userID", "isActive"],
                     include: [
                         {
                             model: User,
                             as: "user",
-                            attributes: ["userID", "userName"]
-                        }
-                    ]
-                }
-            ]
+                            required: false,
+                            attributes: ["userID", "userName"],
+                        },
+                    ],
+                },
+            ],
         });
 
         if (!album) {

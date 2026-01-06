@@ -6,5 +6,6 @@ const models = initModels(sequelize);
 
 module.exports = {
     sequelize,
+    Sequelize,
     models
 };

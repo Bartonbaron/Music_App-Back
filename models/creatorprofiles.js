@@ -18,8 +18,8 @@ module.exports = function(sequelize, DataTypes) {
     },
     numberOfFollowers: {
       type: DataTypes.INTEGER,
-      allowNull: true,
-      defaultValue: 0
+      allowNull: false,
+      defaultValue: 0,
     },
     bio: {
       type: DataTypes.TEXT,

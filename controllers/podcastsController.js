@@ -114,11 +114,13 @@ const getPodcast = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
-                    attributes: ["creatorID", "userID", "bio"],
+                    required: false,
+                    attributes: ["creatorID", "userID", "bio", "isActive"],
                     include: [
                         {
                             model: User,
                             as: "user",
+                            required: false,
                             attributes: ["userName"],
                         },
                     ],

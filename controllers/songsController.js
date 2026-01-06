@@ -35,18 +35,18 @@ const getSong = async (req, res) => {
                 {
                     model: CreatorProfile,
                     as: "creator",
+                    required: false,
+                    attributes: ["creatorID", "userID", "isActive"],
                     include: [
                         {
                             model: User,
                             as: "user",
+                            required: false,
                             attributes: ["userID", "userName"],
                         },
                     ],
                 },
-                {
-                    model: Album,
-                    as: "album",
-                },
+                { model: Album, as: "album", required: false },
             ],
         });
 
