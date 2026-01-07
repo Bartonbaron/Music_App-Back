@@ -2,16 +2,16 @@ const express = require("express");
 const router = express.Router();
 
 const { authenticateToken, requireCreator } = require("../middleware/authMiddleware");
-const upload = require("../middleware/uploadPodcast");
+const uploadPodcastM  = require("../middleware/uploadPodcastM");
 
-const {uploadPodcast, getPodcast, getAllPodcasts,
-    deletePodcast, incrementPodcastStream, favoritePodcast, unfavoritePodcast, updatePodcastVisibility} = require("../controllers/podcastsController");
+const {uploadPodcast, getPodcast, getAllPodcasts, updatePodcast, deletePodcast,
+    incrementPodcastStream, favoritePodcast, unfavoritePodcast} = require("../controllers/podcastsController");
 
 router.post(
     "/upload",
     authenticateToken,
     requireCreator,
-    upload.fields([
+    uploadPodcastM.fields([
         { name: "file", maxCount: 1 },
         { name: "cover", maxCount: 1 }
     ]),
@@ -24,8 +24,17 @@ router.get("/", authenticateToken, getAllPodcasts);
 
 router.delete("/:id", authenticateToken, requireCreator, deletePodcast);
 
+router.patch(
+    "/:id",
+    authenticateToken,
+    requireCreator,
+    uploadPodcastM.fields([
+        { name: "cover", maxCount: 1 }
+    ]),
+    updatePodcast
+);
+
 router.patch("/:id/stream", authenticateToken, incrementPodcastStream);
-router.patch("/:id/visibility", authenticateToken, requireCreator, updatePodcastVisibility);
 
 router.post("/:id/favorite", authenticateToken, favoritePodcast);
 router.post("/:id/unfavorite", authenticateToken, unfavoritePodcast);

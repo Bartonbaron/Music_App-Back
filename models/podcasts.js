@@ -43,11 +43,6 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.DATE,
       allowNull: true
     },
-    visibility: {
-      type: DataTypes.CHAR(1),
-      allowNull: true,
-      defaultValue: "P"
-    },
     moderationStatus: {
       type: DataTypes.ENUM("ACTIVE", "HIDDEN"),
       allowNull: false,

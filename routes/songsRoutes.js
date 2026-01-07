@@ -1,15 +1,17 @@
 const express = require("express");
 const uploadSongM = require("../middleware/uploadSongM");
+const uploadCoverM = require("../middleware/uploadCoverM");
 
 const { authenticateToken, requireCreator } = require("../middleware/authMiddleware");
 
-const {getSong, getSongsList, uploadSong, deleteSong, incrementStreamCount, likeSong, unlikeSong} = require("../controllers/songsController");
+const {getSong, getSongsList, getMySongs, uploadSong, updateSong,
+    deleteSong, incrementStreamCount, likeSong, unlikeSong} = require("../controllers/songsController");
 
 const router = express.Router();
 
 // Trasy
-router.get("/:songID", authenticateToken, getSong);
 router.get("/", authenticateToken, getSongsList);
+router.get("/my", authenticateToken, requireCreator, getMySongs);
 
 router.post(
     "/upload", authenticateToken, requireCreator,
@@ -20,10 +22,19 @@ router.post(
     uploadSong
 );
 
+router.get("/:songID", authenticateToken, getSong);
 router.post("/:id/like", authenticateToken, likeSong);
 router.post("/:id/unlike", authenticateToken, unlikeSong);
 
 router.delete("/:songID", authenticateToken, requireCreator, deleteSong);
+
+router.patch(
+    "/:songID",
+    authenticateToken,
+    requireCreator,
+    uploadCoverM.single("cover"),
+    updateSong
+);
 router.patch("/:id/stream", authenticateToken, incrementStreamCount);
 
 module.exports = router;

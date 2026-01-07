@@ -56,6 +56,37 @@ const getAllAlbums = async (req, res) => {
     }
 };
 
+const getMyAlbums = async (req, res) => {
+    try {
+        const creator = await CreatorProfile.findOne({
+            where: { userID: req.user.id, isActive: true },
+            attributes: ["creatorID"],
+        });
+
+        if (!creator) return res.status(403).json({ message: "Creator profile not found" });
+
+        const albums = await Album.findAll({
+            where: { creatorID: creator.creatorID },
+            order: [["createdAt", "DESC"]],
+        });
+
+        const presented = await Promise.all(
+            albums.map(async (a) => {
+                const coverKey = a.coverURL ? extractKey(a.coverURL) : null;
+                return {
+                    ...a.toJSON(),
+                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
+                };
+            })
+        );
+
+        return res.json({ albums: presented });
+    } catch (err) {
+        console.error("GET MY ALBUMS ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 const getAlbum = async (req, res) => {
     try {
         const album = await Album.findByPk(req.params.id, {
@@ -112,7 +143,6 @@ const getAlbum = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 const getAlbumSongs = async (req, res) => {
     try {
@@ -172,7 +202,6 @@ const getAlbumSongs = async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 };
-
 
 const addAlbumToLibrary = async (req, res) => {
     try {
@@ -438,9 +467,9 @@ const addSongToAlbum = async (req, res) => {
 const addSongsToAlbumBulk = async (req, res) => {
     try {
         const { albumID } = req.params;
-        const { songIDs } = req.body;
+        const { songIDs } = req.body || {};
 
-        if (!Array.isArray(songIDs) || !songIDs.length) {
+        if (!Array.isArray(songIDs) || songIDs.length === 0) {
             return res.status(400).json({ message: "songIDs must be an array" });
         }
 
@@ -562,7 +591,7 @@ const reorderAlbumSongs = async (req, res) => {
             raw: true
         });
 
-        const albumSongIDs = items.map(i => i.get("songID"));
+        const albumSongIDs = items.map(i => i.songID);
 
         // Liczba
         if (order.length !== albumSongIDs.length) {
@@ -757,6 +786,7 @@ const publishAlbum = async (req, res) => {
 
 module.exports = {
     getAllAlbums,
+    getMyAlbums,
     getAlbum,
     getAlbumSongs,
     addAlbumToLibrary,

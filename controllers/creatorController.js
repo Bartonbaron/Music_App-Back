@@ -2,6 +2,7 @@ const { sequelize, models } = require("../models");
 const Creator = models.creatorprofiles;
 const User = models.users;
 const Song = models.songs;
+const Genre = models.genres;
 const Followers = models.followers;
 const Album = models.albums;
 const Podcast = models.podcasts;
@@ -201,7 +202,15 @@ const getMyCreatorProfile = async (req, res) => {
         // Songs
         const songs = await Song.findAll({
             where: { creatorID: creator.creatorID },
-            attributes: ["songID", "songName", "duration", "coverURL", "fileURL", "createdAt"],
+            attributes: ["songID", "songName", "description", "genreID", "duration", "coverURL", "fileURL", "createdAt"],
+            include: [
+                {
+                    model: Genre,
+                    as: "genre",
+                    attributes: ["genreID", "genreName"],
+                    required: false,
+                },
+            ],
             order: [["createdAt", "DESC"]],
         });
 
@@ -213,7 +222,16 @@ const getMyCreatorProfile = async (req, res) => {
                 return {
                     songID: s.songID,
                     songName: s.songName,
+                    description: s.description ?? null,
                     duration: s.duration,
+                    genreID: s.genreID,
+                    genre: s.genre
+                        ? {
+                            genreID: s.genre.genreID,
+                            genreName: s.genre.genreName,
+                        }
+                        : null,
+
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                     createdAt: s.createdAt,
@@ -221,7 +239,7 @@ const getMyCreatorProfile = async (req, res) => {
             })
         );
 
-        // Podcasty (jak masz)
+        // Podcasty
         const podcasts = await Podcast.findAll({
             where: { creatorID: creator.creatorID },
             attributes: ["podcastID", "podcastName", "coverURL", "createdAt", "fileURL", "duration"],

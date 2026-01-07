@@ -3,7 +3,7 @@ const router = express.Router();
 
 const uploadCoverM = require("../middleware/uploadCoverM");
 
-const {getAllAlbums, getAlbum, getAlbumSongs, addAlbumToLibrary, removeAlbumFromLibrary,
+const {getAllAlbums, getMyAlbums, getAlbum, getAlbumSongs, addAlbumToLibrary, removeAlbumFromLibrary,
     createAlbum, updateAlbum, deleteAlbum, addSongToAlbum,
     addSongsToAlbumBulk, removeSongFromAlbum, reorderAlbumSongs,
     uploadAlbumCover, deleteAlbumCover, publishAlbum} = require("../controllers/albumsController");
@@ -11,6 +11,8 @@ const {getAllAlbums, getAlbum, getAlbumSongs, addAlbumToLibrary, removeAlbumFrom
 const {authenticateToken, requireCreator} = require("../middleware/authMiddleware");
 
 router.get("/", authenticateToken, getAllAlbums);
+
+router.get("/my", authenticateToken, requireCreator, getMyAlbums);
 
 router.get("/:id", authenticateToken, getAlbum);
 

@@ -11,6 +11,10 @@ module.exports = function(sequelize, DataTypes) {
       type: DataTypes.STRING(100),
       allowNull: false
     },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
     creatorID: {
       type: DataTypes.INTEGER,
       allowNull: true,

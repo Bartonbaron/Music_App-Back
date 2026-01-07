@@ -6,7 +6,7 @@ const storage = multer.memoryStorage();
 const allowedAudio = ["audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/flac", "audio/x-flac"];
 const allowedImages = ["image/jpeg", "image/png", "image/jpg"];
 
-const uploadPodcast = multer({
+const uploadPodcastM = multer({
     storage,
     fileFilter: (req, file, cb) => {
         // AUDIO (pole: "file")
@@ -31,4 +31,4 @@ const uploadPodcast = multer({
     }
 });
 
-module.exports = uploadPodcast;
+module.exports = uploadPodcastM;

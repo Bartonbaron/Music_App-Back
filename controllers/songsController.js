@@ -8,6 +8,7 @@ const Song = models.songs;
 const CreatorProfile = models.creatorprofiles;
 const User = models.users;
 const Album = models.albums;
+const Genre = models.genres;
 const UserSongLikes = models.usersonglikes;
 const FavoriteSongs = models.favoritesongs;
 const StreamHistory = models.streamhistory;
@@ -42,7 +43,7 @@ const getSong = async (req, res) => {
                             model: User,
                             as: "user",
                             required: false,
-                            attributes: ["userID", "userName"],
+                            attributes: ["userID", "userName", "profilePicURL"],
                         },
                     ],
                 },
@@ -72,12 +73,19 @@ const getSong = async (req, res) => {
             ? song.album.coverURL.split(".amazonaws.com/")[1]
             : null;
 
+        const creatorAvatarKey = song.creator?.user?.profilePicURL
+            ? song.creator.user.profilePicURL.split(".amazonaws.com/")[1]
+            : null;
+
         res.json({
             songID: song.songID,
             songName: song.songName,
+            description: song.description ?? "",
             duration: song.duration,
 
+            creatorID: song.creator?.creatorID ?? null,
             creatorName: song.creator?.user?.userName ?? null,
+            signedProfilePicURL: creatorAvatarKey ? await generateSignedUrl(creatorAvatarKey) : null,
 
             signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
             signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
@@ -86,9 +94,7 @@ const getSong = async (req, res) => {
                 ? {
                     albumID: song.album.albumID,
                     albumName: song.album.albumName,
-                    signedCover: albumCoverKey
-                        ? await generateSignedUrl(albumCoverKey)
-                        : null,
+                    signedCover: albumCoverKey ? await generateSignedUrl(albumCoverKey) : null,
                 }
                 : null,
         });
@@ -140,18 +146,51 @@ const getSongsList = async (req, res) => {
     }
 };
 
+const getMySongs = async (req, res) => {
+    try {
+        const creator = await CreatorProfile.findOne({
+            where: { userID: req.user.id, isActive: true },
+            attributes: ["creatorID"],
+        });
+        if (!creator) return res.status(403).json({ message: "Creator profile not found" });
+
+        const where = { creatorID: creator.creatorID };
+        if (String(req.query.unassigned) === "1") {
+            where.albumID = null;
+        }
+
+        const songs = await Song.findAll({
+            where,
+            include: [{ model: Genre, as: "genre", required: false }],
+            order: [["createdAt", "DESC"]],
+        });
+
+        const presented = await Promise.all(
+            songs.map(async (s) => {
+                const coverKey = s.coverURL ? extractKey(s.coverURL) : null;
+                const audioKey = s.fileURL ? extractKey(s.fileURL) : null;
+
+                return {
+                    ...s.toJSON(),
+                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
+                    signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+                };
+            })
+        );
+
+        return res.json({ songs: presented });
+    } catch (err) {
+        console.error("GET MY SONGS ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 // Upload utworu
 const uploadSong = async (req, res) => {
     try {
         const audioFile = req.files?.file?.[0];
         const coverFile = req.files?.cover?.[0];
-        const { genreID } = req.body;
-
-        // Reset AUTO_INCREMENT jeśli pusto
-        const count = await Song.count();
-        if (count === 0) {
-            await Song.sequelize.query("ALTER TABLE songs AUTO_INCREMENT = 1;");
-        }
+        const { genreID, description } = req.body;
 
         if (!audioFile) {
             return res.status(400).json({ message: "Audio file is required" });
@@ -181,16 +220,23 @@ const uploadSong = async (req, res) => {
         const songName = audioFile.originalname.replace(/\.[^/.]+$/, "");
 
         const creator = await CreatorProfile.findOne({
-            where: { userID: req.user.id }
+            where: { userID: req.user.id, isActive: true }
         });
 
         if (!creator) {
             return res.status(403).json({ message: "Creator profile not found" });
         }
 
+        // Opis (opcjonalnie)
+        const desc = String(description ?? "").trim();
+        if (desc.length > 2000) {
+           return res.status(400).json({ message: "Description too long (max 2000 chars)" });
+        }
+
         // Stwórz najpierw rekord w bazie
         const song = await Song.create({
             songName,
+            description: desc || null,
             creatorID: creator.creatorID,
             duration,
             fileURL: null,
@@ -218,7 +264,8 @@ const uploadSong = async (req, res) => {
         // Upload cover
         let coverURL = null;
         if (coverFile) {
-            const ext = coverFile.originalname.split(".").pop();
+            const extRaw = String(coverFile.originalname || "").split(".").pop();
+            const ext = extRaw && extRaw.length <= 6 ? extRaw : "jpg";
             const coverKey = `covers/songs/${songID}.${ext}`;
 
             await s3.send(new PutObjectCommand({
@@ -232,7 +279,7 @@ const uploadSong = async (req, res) => {
                 `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverKey}`;
         }
 
-        await song.update({ fileURL: audioURL, coverURL });
+        await song.update({ fileURL: audioURL, coverURL: coverURL });
 
         return res.status(201).json({
             message: "Song uploaded successfully!",
@@ -244,6 +291,125 @@ const uploadSong = async (req, res) => {
     } catch (err) {
         console.log("UPLOAD ERROR:", err);
         return res.status(500).json({ message: "Upload failed", error: err });
+    }
+};
+
+const updateSong = async (req, res) => {
+    try {
+        const { songID } = req.params;
+        const { songName, genreID, description } = req.body;
+        const coverFile = req.file || null;
+
+        if (!songID) {
+            return res.status(400).json({ message: "songID is required" });
+        }
+
+        const song = await Song.findByPk(songID);
+        if (!song) {
+            return res.status(404).json({ message: "Song not found" });
+        }
+
+        // === sprawdź twórcę ===
+        const creator = await CreatorProfile.findOne({
+            where: { userID: req.user.id, isActive: true },
+            attributes: ["creatorID", "userID"],
+        });
+
+        if (!creator) {
+            return res.status(403).json({ message: "Creator profile not found" });
+        }
+
+        if (String(song.creatorID) !== String(creator.creatorID)) {
+            return res.status(403).json({ message: "Forbidden" });
+        }
+
+        // === update nazwy ===
+        if (songName !== undefined) {
+            const trimmed = String(songName).trim();
+            if (!trimmed) {
+                return res.status(400).json({ message: "songName cannot be empty" });
+            }
+            song.songName = trimmed;
+        }
+
+        // Update gatunku
+        if (genreID !== undefined) {
+            const gid = Number(genreID);
+            if (!Number.isFinite(gid) || gid <= 0) {
+                return res.status(400).json({ message: "Invalid genreID" });
+            }
+
+            const genre = await Genre.findByPk(gid);
+            if (!genre) {
+                return res.status(400).json({ message: "Invalid genreID" });
+            }
+
+            song.genreID = gid;
+        }
+
+        if (description !== undefined) {
+            const desc = String(description ?? "").trim();
+
+            // limit jak w UI
+            if (desc.length > 2000) {
+                return res.status(400).json({ message: "Description too long (max 2000 chars)" });
+            }
+
+            song.description = desc || null;
+        }
+
+        // Upload covera
+        if (coverFile) {
+            const oldCoverKey = extractKey(song.coverURL);
+
+            const ext = coverFile.originalname.split(".").pop();
+            const coverKey = `covers/songs/${song.songID}.${ext}`;
+
+            await s3.send(
+                new PutObjectCommand({
+                    Bucket: process.env.AWS_S3_BUCKET,
+                    Key: coverKey,
+                    Body: coverFile.buffer,
+                    ContentType: coverFile.mimetype,
+                })
+            );
+
+            song.coverURL = `https://${process.env.AWS_S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverKey}`;
+
+            if (oldCoverKey && oldCoverKey !== coverKey) {
+                try {
+                    await s3.send(
+                        new DeleteObjectCommand({
+                            Bucket: process.env.AWS_S3_BUCKET,
+                            Key: oldCoverKey,
+                        })
+                    );
+                } catch (e) {
+                    console.warn("DELETE OLD COVER WARN:", e?.message || e);
+                }
+            }
+        }
+
+        await song.save();
+
+        const coverKey = extractKey(song.coverURL);
+        const signedCover = coverKey ? await generateSignedUrl(coverKey) : null;
+
+        return res.json({
+            message: "Song updated",
+            song: {
+                songID: song.songID,
+                songName: song.songName,
+                genreID: song.genreID,
+                creatorID: song.creatorID,
+                duration: song.duration,
+                description: song.description,
+                signedCover,
+            },
+        });
+    } catch (err) {
+        console.error("UPDATE SONG ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -397,7 +563,9 @@ const unlikeSong = async (req, res) => {
 module.exports = {
     getSong,
     getSongsList,
+    getMySongs,
     uploadSong,
+    updateSong,
     deleteSong,
     incrementStreamCount,
     likeSong,

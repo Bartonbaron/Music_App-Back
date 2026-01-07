@@ -33,9 +33,13 @@ const uploadPodcast = async (req, res) => {
         // pobranie duration
         let duration = null;
         try {
-            const meta = await mm.parseBuffer(audio.buffer);
-            duration = Math.round(meta.format.duration);
-        } catch {}
+            const meta = await mm.parseBuffer(audio.buffer, audio.mimetype, { duration: true });
+            const d = Number(meta?.format?.duration);
+            duration = Number.isFinite(d) && d > 0 ? Math.round(d) : null;
+        } catch (e) {
+            console.warn("PODCAST METADATA ERROR:", e?.message || e);
+            duration = null;
+        }
 
         // Wymagane topicID
         if (!req.body.topicID) {
@@ -159,7 +163,6 @@ const getAllPodcasts = async (req, res) => {
 
         const podcasts = await Podcast.findAll({
             where: {
-                visibility: "P",
                 moderationStatus: "ACTIVE",
             },
             include: [
@@ -195,6 +198,124 @@ const getAllPodcasts = async (req, res) => {
     }
 };
 
+const updatePodcast = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { podcastName, topicID, description, releaseDate } = req.body;
+        const coverFile = req.file || null;
+
+        if (!id) return res.status(400).json({ message: "podcastID is required" });
+
+        const podcast = await Podcast.findByPk(id);
+        if (!podcast) return res.status(404).json({ message: "Podcast not found" });
+
+        const creator = await CreatorProfile.findOne({
+            where: { userID: req.user.id, isActive: true },
+            attributes: ["creatorID", "userID"],
+        });
+
+        if (!creator) {
+            return res.status(403).json({ message: "Creator profile not found" });
+        }
+
+        if (String(podcast.creatorID) !== String(creator.creatorID)) {
+            return res.status(403).json({ message: "Forbidden" });
+        }
+
+        // Update nazwy
+        if (podcastName !== undefined) {
+            const trimmed = String(podcastName || "").trim();
+            if (!trimmed) return res.status(400).json({ message: "podcastName cannot be empty" });
+            podcast.podcastName = trimmed;
+        }
+
+        // Update tematu
+        if (topicID !== undefined) {
+            const tid = Number(topicID);
+            if (!Number.isFinite(tid) || tid <= 0) {
+                return res.status(400).json({ message: "Invalid topicID" });
+            }
+
+            const topic = await models.topics.findByPk(tid);
+            if (!topic) {
+                return res.status(400).json({ message: "Invalid topicID — topic not found" });
+            }
+
+            podcast.topicID = tid;
+        }
+
+        // Update description
+        if (description !== undefined) {
+            const desc = String(description || "").trim();
+            podcast.description = desc || null;
+        }
+
+        // Update releaseDate
+        if (releaseDate !== undefined) {
+            const dt = new Date(releaseDate);
+            if (Number.isNaN(dt.getTime())) {
+                return res.status(400).json({ message: "Invalid releaseDate" });
+            }
+            podcast.releaseDate = dt;
+        }
+
+        // upload cover (opcjonalnie)
+        if (coverFile) {
+            const oldCoverKey = extractKey(podcast.coverURL);
+
+            const ext = (coverFile.originalname || "jpg").split(".").pop();
+            const coverKey = `covers/podcasts/${podcast.podcastID}.${ext}`;
+
+            await s3.send(
+                new PutObjectCommand({
+                    Bucket: BUCKET, // u Ciebie w podcastach używasz BUCKET
+                    Key: coverKey,
+                    Body: coverFile.buffer,
+                    ContentType: coverFile.mimetype,
+                })
+            );
+
+            podcast.coverURL = `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverKey}`;
+
+            // usuń stary cover jeśli miał inną nazwę/klucz
+            if (oldCoverKey && oldCoverKey !== coverKey) {
+                try {
+                    await s3.send(
+                        new DeleteObjectCommand({
+                            Bucket: BUCKET,
+                            Key: oldCoverKey,
+                        })
+                    );
+                } catch (e) {
+                    console.warn("DELETE OLD PODCAST COVER WARN:", e?.message || e);
+                }
+            }
+        }
+
+        await podcast.save();
+
+        const signedCover = podcast.coverURL
+            ? await generateSignedUrl(extractKey(podcast.coverURL))
+            : null;
+
+        return res.json({
+            message: "Podcast updated",
+            podcast: {
+                podcastID: podcast.podcastID,
+                podcastName: podcast.podcastName,
+                topicID: podcast.topicID,
+                description: podcast.description ?? null,
+                releaseDate: podcast.releaseDate,
+                duration: podcast.duration,
+                signedCover,
+            },
+        });
+    } catch (err) {
+        console.error("UPDATE PODCAST ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 // DELETE PODCAST (Tylko twórca)
 const deletePodcast = async (req, res) => {
     try {
@@ -227,11 +348,6 @@ const deletePodcast = async (req, res) => {
 
         await podcast.destroy();
 
-        const count = await Podcast.count();
-        if (count === 0) {
-            await sequelize.query("ALTER TABLE podcasts AUTO_INCREMENT = 1");
-        }
-
         res.json({ message: "Podcast deleted", deletedFiles: objects });
 
     } catch (err) {
@@ -248,18 +364,6 @@ const incrementPodcastStream = async (req, res) => {
         const podcast = await Podcast.findByPk(podcastID);
         if (!podcast) {
             return res.status(404).json({ message: "Podcast not found" });
-        }
-
-        if (podcast.visibility === "R") {
-            const creator = await CreatorProfile.findOne({
-                where: { userID }
-            });
-
-            if (!creator || creator.creatorID !== podcast.creatorID) {
-                return res.status(403).json({
-                    message: "You are not allowed to stream this podcast"
-                });
-            }
         }
 
         const recent = await StreamHistory.findOne({
@@ -303,19 +407,6 @@ const favoritePodcast = async (req, res) => {
             return res.status(404).json({ message: "Podcast not found" });
         }
 
-        // Widoczność
-        if (podcast.visibility === "R") {
-            const creator = await CreatorProfile.findOne({
-                where: { userID }
-            });
-
-            if (!creator || creator.creatorID !== podcast.creatorID) {
-                return res.status(403).json({
-                    message: "This podcast is private"
-                });
-            }
-        }
-
         const exists = await FavoritePodcasts.findOne({
             where: { userID, podcastID }
         });
@@ -352,65 +443,14 @@ const unfavoritePodcast = async (req, res) => {
     }
 };
 
-const updatePodcastVisibility = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { visibility } = req.body;
-
-        // Walidacja wartości
-        const allowed = ["P", "R", "U"];
-        if (!allowed.includes(visibility)) {
-            return res.status(400).json({
-                message: "Invalid visibility value. Allowed: P, R, U"
-            });
-        }
-
-        const podcast = await Podcast.findByPk(id);
-        if (!podcast) {
-            return res.status(404).json({ message: "Podcast not found" });
-        }
-
-        // Sprawdź twórcę
-        const creator = await CreatorProfile.findOne({
-            where: { userID: req.user.id }
-        });
-
-        if (!creator) {
-            return res.status(403).json({
-                message: "You are not a creator — cannot modify podcasts."
-            });
-        }
-
-        if (podcast.creatorID !== creator.creatorID) {
-            return res.status(403).json({
-                message: "You can update only your own podcasts"
-            });
-        }
-
-        // Aktualizacja
-        podcast.visibility = visibility;
-        await podcast.save();
-
-        res.json({
-            message: "Podcast visibility updated",
-            podcastID: podcast.podcastID,
-            visibility: podcast.visibility
-        });
-
-    } catch (err) {
-        console.error("UPDATE VISIBILITY ERROR:", err);
-        res.status(500).json({ message: "Server error" });
-    }
-};
-
 module.exports = {
     uploadPodcast,
     getPodcast,
     getAllPodcasts,
+    updatePodcast,
     deletePodcast,
     incrementPodcastStream,
     favoritePodcast,
     unfavoritePodcast,
-    updatePodcastVisibility
 }
 
