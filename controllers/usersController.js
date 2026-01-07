@@ -91,16 +91,27 @@ const updateProfile = async (req, res) => {
         const currentUserName = user.userName;
         const currentEmail = user.email;
 
-        if (userName && userName !== currentUserName) {
-            const exists = await User.findOne({ where: { userName } });
-            if (exists) return res.status(400).json({ message: "Username already taken" });
-            user.userName = userName;
+        if (userName !== undefined) {
+            const nameTrim = String(userName).trim();
+            if (!nameTrim) return res.status(400).json({ message: "Username cannot be empty" });
+
+            if (nameTrim !== currentUserName) {
+                const exists = await User.findOne({ where: { userName: nameTrim } });
+                if (exists) return res.status(400).json({ message: "Username already taken" });
+                user.userName = nameTrim;
+            }
         }
 
-        if (email && email !== currentEmail) {
-            const exists = await User.findOne({ where: { email } });
-            if (exists) return res.status(400).json({ message: "Email already in use" });
-            user.email = email;
+        if (email !== undefined) {
+            const emailTrim = email === null ? null : String(email).trim();
+
+            if (emailTrim === null || emailTrim === "") {
+                user.email = null;
+            } else if (emailTrim !== currentEmail) {
+                const exists = await User.findOne({ where: { email: emailTrim } });
+                if (exists) return res.status(400).json({ message: "Email already in use" });
+                user.email = emailTrim;
+            }
         }
 
         if (profilePicURL !== undefined) {

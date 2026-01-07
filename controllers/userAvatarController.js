@@ -4,6 +4,7 @@ const { models } = require("../models");
 const { presentUser } = require("../utils/userPresenter");
 const Users = models.users;
 const Role = models.roles;
+const extractKey = require("../utils/extractKey");
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
