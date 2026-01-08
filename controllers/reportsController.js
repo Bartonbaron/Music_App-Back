@@ -7,6 +7,9 @@ const Playlist = models.playlists;
 const Album = models.albums;
 const User = models.users;
 
+const ALLOWED_TYPES = ["song", "podcast", "playlist", "album", "user"];
+const MAX_REASON_LEN = 255;
+
 const resolveModel = (type) => {
     switch (type) {
         case "song": return Song;
@@ -18,19 +21,26 @@ const resolveModel = (type) => {
     }
 };
 
-const isOwnContent = (contentType, content, user) => {
+const getActor = (req) => {
+    const userID = Number(req.user?.userID ?? req.user?.id);
+    const creatorID = req.user?.creatorID != null ? Number(req.user.creatorID) : null;
+    return { userID, creatorID };
+};
+
+const isOwnContent = (contentType, content, actor) => {
     switch (contentType) {
         case "playlist":
         case "album":
-            return content.userID === user.id;
+            return Number(content.userID) === actor.userID;
 
         case "song":
         case "podcast":
-            if (!user.creatorID) return false;
-            return content.creatorID === user.creatorID;
+            // Jeśli user nie ma creatorID w tokenie, nie uznajemy tego za "own content"
+            if (!Number.isFinite(actor.creatorID)) return false;
+            return Number(content.creatorID) === actor.creatorID;
 
         case "user":
-            return content.userID === user.id;
+            return Number(content.userID) === actor.userID;
 
         default:
             return false;
@@ -41,8 +51,30 @@ const createReport = async (req, res) => {
     try {
         const { contentType, contentID, reason } = req.body;
 
-        if (!contentType || !contentID || !reason) {
-            return res.status(400).json({ message: "Missing required fields" });
+        // actor
+        const actor = getActor(req);
+        if (!Number.isFinite(actor.userID) || actor.userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        // walidacja typu
+        if (!ALLOWED_TYPES.includes(contentType)) {
+            return res.status(400).json({ message: "Invalid contentType" });
+        }
+
+        // walidacja contentID
+        const cid = Number(contentID);
+        if (!Number.isFinite(cid) || cid <= 0) {
+            return res.status(400).json({ message: "Invalid contentID" });
+        }
+
+        // walidacja powodu
+        const cleanedReason = typeof reason === "string" ? reason.trim() : "";
+        if (!cleanedReason) {
+            return res.status(400).json({ message: "Reason is required" });
+        }
+        if (cleanedReason.length > MAX_REASON_LEN) {
+            return res.status(400).json({ message: `Reason too long (max ${MAX_REASON_LEN})` });
         }
 
         const Model = resolveModel(contentType);
@@ -50,57 +82,52 @@ const createReport = async (req, res) => {
             return res.status(400).json({ message: "Invalid contentType" });
         }
 
-        const content = await Model.findByPk(contentID);
+        const content = await Model.findByPk(cid);
         if (!content) {
             return res.status(404).json({ message: "Content not found" });
         }
 
+        // album niewydany – nie raportujemy
         if (contentType === "album" && content.isPublished === false) {
-            return res.status(400).json({
-                message: "This album is not publicly available yet"
-            });
+            return res.status(400).json({ message: "This album is not publicly available yet" });
         }
 
-        if (isOwnContent(contentType, content, req.user)) {
-            return res.status(400).json({
-                message: "You cannot report your own content"
-            });
+        // nie pozwalaj zgłaszać własnych treści
+        if (isOwnContent(contentType, content, actor)) {
+            return res.status(400).json({ message: "You cannot report your own content" });
         }
 
+        // anty-spam: blokuj powtórki jeśli report jest pending albo reviewed
         const exists = await Report.findOne({
             where: {
-                userID: req.user.id,
+                userID: actor.userID,
                 contentType,
-                contentID,
-                status: "pending"
-            }
+                contentID: cid,
+                status: ["pending", "reviewed"],
+            },
         });
 
         if (exists) {
-            return res.status(400).json({
-                message: "You already reported this content"
-            });
+            return res.status(409).json({ message: "You already reported this content" });
         }
 
         const report = await Report.create({
-            userID: req.user.id,
+            userID: actor.userID,
             contentType,
-            contentID,
-            reason,
-            status: "pending"
+            contentID: cid,
+            reason: cleanedReason,
+            status: "pending",
         });
 
-        res.status(201).json({
+        return res.status(201).json({
             message: "Report submitted",
-            reportID: report.reportID
+            reportID: report.reportID,
+            status: report.status,
         });
-
     } catch (err) {
         console.error("CREATE REPORT ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
-module.exports = {
-    createReport
-};
+module.exports = { createReport };

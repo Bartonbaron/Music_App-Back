@@ -2,8 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const { authenticateToken, requireAdmin } = require("../middleware/authMiddleware");
-const {moderateUser} = require("../controllers/moderationController");
+const { moderateUser } = require("../controllers/moderationController");
 
-router.patch("/user", authenticateToken, requireAdmin, moderateUser);
+router.patch("/moderation/user", authenticateToken, requireAdmin, moderateUser);
 
 module.exports = router;

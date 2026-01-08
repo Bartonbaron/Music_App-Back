@@ -24,7 +24,16 @@ const authenticateToken = (req, res, next) => {
 
 const requireAdmin = (req, res, next) => {
     try {
-        if (req.user.roleID !== ADMIN_ROLE_ID) {
+        if (!req.user) {
+            return res.status(401).json({ message: "Not authenticated" });
+        }
+
+        const roleId = Number(req.user.roleID);
+        if (!Number.isFinite(ADMIN_ROLE_ID) || !Number.isFinite(roleId)) {
+            return res.status(500).json({ message: "Role config error" });
+        }
+
+        if (roleId !== ADMIN_ROLE_ID) {
             return res.status(403).json({ message: "Admin role required" });
         }
 

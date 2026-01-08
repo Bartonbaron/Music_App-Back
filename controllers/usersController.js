@@ -22,6 +22,7 @@ const getMyProfile = async (req, res) => {
                 "profilePicURL",
                 "status",
                 "createdAt",
+                "roleID",
                 "volume",
                 "playbackMode",
                 "autoplay",
