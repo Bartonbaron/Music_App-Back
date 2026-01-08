@@ -12,6 +12,7 @@ var _libraryalbums = require("./libraryalbums");
 var _libraryplaylists = require("./libraryplaylists");
 var _playhistory = require("./playhistory");
 var _playlistactivities = require("./playlistactivities");
+var _playlistcollaborators = require("./playlistcollaborators");
 var _playlists = require("./playlists");
 var _playlistsongs = require("./playlistsongs");
 var _playqueue = require("./playqueue");
@@ -39,6 +40,7 @@ function initModels(sequelize) {
   var libraryplaylists = _libraryplaylists(sequelize, DataTypes);
   var playhistory = _playhistory(sequelize, DataTypes);
   var playlistactivities = _playlistactivities(sequelize, DataTypes);
+  var playlistcollaborators = _playlistcollaborators(sequelize, DataTypes);
   var playlists = _playlists(sequelize, DataTypes);
   var playlistsongs = _playlistsongs(sequelize, DataTypes);
   var playqueue = _playqueue(sequelize, DataTypes);
@@ -132,6 +134,8 @@ function initModels(sequelize) {
   playlistactivities.belongsTo(users, { as: "user", foreignKey: "userID"});
   users.hasMany(playlistactivities, { as: "playlistactivities", foreignKey: "userID"});
   playlists.belongsTo(users, { as: "user", foreignKey: "userID"});
+  playlists.hasMany(playlistcollaborators, { as: "collaborators", foreignKey: "playlistID" });
+  playlistcollaborators.belongsTo(users, { as: "user", foreignKey: "userID" });
   users.hasMany(playlists, { as: "playlists", foreignKey: "userID"});
   playqueue.belongsTo(users, { as: "user", foreignKey: "userID"});
   users.hasMany(playqueue, { as: "playqueues", foreignKey: "userID"});
@@ -157,6 +161,7 @@ function initModels(sequelize) {
     libraryplaylists,
     playhistory,
     playlistactivities,
+    playlistcollaborators,
     playlists,
     playlistsongs,
     playqueue,

@@ -43,9 +43,9 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: "ACTIVE"
     },
     isCollaborative: {
-      type: DataTypes.CHAR(1),
-      allowNull: true,
-      defaultValue: "N"
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
     }
   }, {
     sequelize,

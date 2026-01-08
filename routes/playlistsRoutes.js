@@ -10,6 +10,10 @@ const {createPlaylist, getUserPlaylists, getPlaylist, getPlaylistActivity, updat
     toggleCollaborative, uploadPlaylistCover, deletePlaylistCover
 } = require("../controllers/playlistsController");
 
+const {inviteCollaborator, listCollaborators, getMyCollabStatus,
+    respondToInvite, removeCollaborator,
+} = require("../controllers/playlistCollaboratorsController");
+
 router.post("/", authenticateToken, uploadCoverM.fields([{ name: "cover", maxCount: 1 }]), createPlaylist);
 
 router.post("/:id/library", authenticateToken, addPlaylistToLibrary);
@@ -41,5 +45,16 @@ router.post("/:playlistID/songs", authenticateToken, addSongToPlaylist);
 router.delete("/:playlistID/songs/:songID", authenticateToken, removeSongFromPlaylist);
 
 router.delete("/:id/cover", authenticateToken, deletePlaylistCover);
+
+// Trasy dla współtworzenia
+router.get("/:id/collaborators", authenticateToken, listCollaborators);
+
+router.get("/:id/collaborators/me", authenticateToken, getMyCollabStatus);
+
+router.post("/:id/collaborators/invite", authenticateToken, inviteCollaborator);
+
+router.patch("/:id/collaborators/respond", authenticateToken, respondToInvite);
+
+router.delete("/:id/collaborators/:userID", authenticateToken, removeCollaborator);
 
 module.exports = router;

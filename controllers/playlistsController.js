@@ -1,16 +1,12 @@
-const { models } = require("../models");
+const { models, sequelize } = require("../models");
 const {Op} = require("sequelize");
 
 const { generateSignedUrl } = require("../config/s3");
-
 const extractKey = require("../utils/extractKey");
-
 const {canAccessPlaylist, canEditPlaylist} = require("../utils/playlistPermissions");
 const uploadCover = require("../utils/uploadCover");
 const deleteCover = require("../utils/deleteCover");
 
-const {s3} = require("../config/s3");
-const {PutObjectCommand} = require("@aws-sdk/client-s3");
 const Playlist = models.playlists;
 const Song = models.songs;
 const User = models.users;
@@ -165,6 +161,8 @@ const getPlaylistActivity = async (req, res) => {
             return res.status(403).json({ message: "This playlist is private" });
         }
 
+        const limit = Math.min(Number(req.query.limit) || 50, 200);
+
         const activities = await PlaylistActivity.findAll({
             where: { playlistID },
             include: [
@@ -180,7 +178,7 @@ const getPlaylistActivity = async (req, res) => {
                 }
             ],
             order: [["createdAt", "DESC"]],
-            limit: 50
+            limit
         });
 
         res.json(activities);
@@ -266,133 +264,191 @@ const deletePlaylist = async (req, res) => {
 };
 
 const addSongToPlaylist = async (req, res) => {
+    const t = await sequelize.transaction();
     try {
-        const { playlistID } = req.params;
-        const { songID } = req.body;
+        const playlistID = Number(req.params.playlistID);
+        const songID = Number(req.body.songID);
 
-        if (!songID) {
+        const userID = Number(req.user?.userID ?? req.user?.id);
+
+        if (!Number.isFinite(userID) || userID <= 0) {
+            await t.rollback();
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        if (!Number.isFinite(playlistID) || playlistID <= 0) {
+            await t.rollback();
+            return res.status(400).json({ message: "Invalid playlistID" });
+        }
+
+        if (!Number.isFinite(songID) || songID <= 0) {
+            await t.rollback();
             return res.status(400).json({ message: "songID is required" });
         }
 
-        // Znajdź playlistę
-        const playlist = await Playlist.findByPk(playlistID);
+        // Playlist
+        const playlist = await Playlist.findByPk(playlistID, { transaction: t });
         if (!playlist) {
+            await t.rollback();
             return res.status(404).json({ message: "Playlist not found" });
         }
 
-        if (!canAccessPlaylist(playlist, req.user.id)) {
+        if (!canAccessPlaylist(playlist, userID)) {
+            await t.rollback();
             return res.status(403).json({ message: "This playlist is private" });
         }
 
-        if (!canEditPlaylist(playlist, req.user.id)) {
+        if (!canEditPlaylist(playlist, userID)) {
+            await t.rollback();
             return res.status(403).json({ message: "Not authorized to modify this playlist" });
         }
 
-        // Sprawdź czy utwór istnieje
-        const song = await Song.findByPk(songID);
+        // Song
+        const song = await Song.findByPk(songID, { transaction: t });
         if (!song) {
+            await t.rollback();
             return res.status(404).json({ message: "Song not found" });
         }
 
-        // Sprawdź, czy utwór nie istnieje już w playliście
         const exists = await PlaylistSongs.findOne({
-            where: { playlistID, songID }
+            where: { playlistID, songID },
+            transaction: t,
+            lock: t.LOCK.UPDATE,
         });
 
         if (exists) {
+            await t.rollback();
             return res.status(400).json({ message: "Song already in playlist" });
         }
 
-        // Ustal pozycję jako ostatnią
-        const lastPos = await PlaylistSongs.max("position", { where: { playlistID } }) || 0;
-
-        await PlaylistSongs.create({
-            playlistID,
-            songID,
-            position: lastPos + 1
+        // Ustal pozycję jako ostatnią (w transakcji, z lockiem)
+        const lastRow = await PlaylistSongs.findOne({
+            where: { playlistID },
+            attributes: ["position"],
+            order: [["position", "DESC"]],
+            transaction: t,
+            lock: t.LOCK.UPDATE,
         });
 
-        await PlaylistActivity.create({
-            playlistID: playlist.playlistID,
-            songID,
-            userID: req.user.id,
-            action: "ADD"
-        });
+        const nextPos = (lastRow?.position || 0) + 1;
 
-        res.status(201).json({ message: "Song added to playlist" });
+        // Dodaj
+        await PlaylistSongs.create(
+            { playlistID, songID, position: nextPos },
+            { transaction: t }
+        );
 
+        // Zapisz aktywność ADD
+        await PlaylistActivity.create(
+            {
+                playlistID,
+                songID,
+                userID,
+                action: "ADD",
+            },
+            { transaction: t }
+        );
+
+        await t.commit();
+        return res.status(201).json({ message: "Song added to playlist" });
     } catch (err) {
+        await t.rollback();
         console.error("ADD SONG TO PLAYLIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
 const removeSongFromPlaylist = async (req, res) => {
+    const t = await sequelize.transaction();
     try {
-        const { playlistID, songID } = req.params;
+        const playlistID = Number(req.params.playlistID);
+        const songID = Number(req.params.songID);
 
-        // Znajdź playlistę
-        const playlist = await Playlist.findByPk(playlistID);
+        const userID = req.user.userID ?? req.user.id;
+
+        if (!Number.isFinite(userID) || userID <= 0) {
+            await t.rollback();
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        if (!Number.isFinite(playlistID) || playlistID <= 0) {
+            await t.rollback();
+            return res.status(400).json({ message: "Invalid playlistID" });
+        }
+
+        if (!Number.isFinite(songID) || songID <= 0) {
+            await t.rollback();
+            return res.status(400).json({ message: "Invalid songID" });
+        }
+
+        const playlist = await Playlist.findByPk(playlistID, { transaction: t });
         if (!playlist) {
+            await t.rollback();
             return res.status(404).json({ message: "Playlist not found" });
         }
 
-        if (!canAccessPlaylist(playlist, req.user.id)) {
-            return res.status(403).json({ message: "This playlist is private" });
+        if (!(await canAccessPlaylist(playlist, userID, models))) {
+            return res.status(403).json({message: "This playlist is private"});
         }
 
-        if (!canEditPlaylist(playlist, req.user.id)) {
+        if (!(await canEditPlaylist(playlist, userID, models))) {
             return res.status(403).json({ message: "Not authorized to modify this playlist" });
         }
 
-        // Sprawdź czy utwór istnieje w playliście
         const entry = await PlaylistSongs.findOne({
-            where: { playlistID, songID }
+            where: { playlistID, songID },
+            transaction: t,
+            lock: t.LOCK.UPDATE,
         });
 
         if (!entry) {
+            await t.rollback();
             return res.status(400).json({ message: "Song is not in this playlist" });
         }
 
         const removedPosition = entry.position;
 
-        // Usuń z playlisty
-        await entry.destroy();
+        await entry.destroy({ transaction: t });
 
-        await PlaylistActivity.create({
-            playlistID: playlist.playlistID,
-            songID,
-            userID: req.user.id,
-            action: "REMOVE"
-        });
+        await PlaylistActivity.create(
+            {
+                playlistID,
+                songID,
+                userID,
+                action: "REMOVE",
+            },
+            { transaction: t }
+        );
 
-        // Aktualizuj pozycje pozostałych utworów
         await PlaylistSongs.increment(
             { position: -1 },
             {
                 where: {
                     playlistID,
-                    position: { [Op.gt]: removedPosition }
-                }
+                    position: { [Op.gt]: removedPosition },
+                },
+                transaction: t,
             }
         );
 
-        res.json({ message: "Song removed from playlist" });
-
+        await t.commit();
+        return res.json({ message: "Song removed from playlist" });
     } catch (err) {
+        await t.rollback();
         console.error("REMOVE SONG FROM PLAYLIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
 const getPlaylistSongs = async (req, res) => {
     try {
         const playlistID = req.params.id;
+        const userID = req.user.userID ?? req.user.id;
 
         const playlist = await Playlist.findByPk(playlistID);
         if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
-        if (!canAccessPlaylist(playlist, req.user.id)) {
+        if (!(await canAccessPlaylist(playlist, userID, models))) {
             return res.status(403).json({ message: "This playlist is private" });
         }
 
@@ -419,6 +475,26 @@ const getPlaylistSongs = async (req, res) => {
             order: [["position", "ASC"]],
         });
 
+        const songIDs = items.map((i) => i.songID).filter(Boolean);
+
+        const lastAddsRaw = songIDs.length
+            ? await PlaylistActivity.findAll({
+                where: {
+                    playlistID: playlist.playlistID,
+                    action: "ADD",
+                    songID: { [Op.in]: songIDs },
+                },
+                include: [{ model: User, as: "user", attributes: ["userID", "userName"] }],
+                order: [["createdAt", "DESC"]],
+            })
+            : [];
+
+        const lastAddBySongID = new Map();
+        for (const a of lastAddsRaw) {
+            const key = String(a.songID);
+            if (!lastAddBySongID.has(key)) lastAddBySongID.set(key, a);
+        }
+
         const result = await Promise.all(
             items.map(async (item) => {
                 const s = item.song;
@@ -426,9 +502,16 @@ const getPlaylistSongs = async (req, res) => {
                 const albumSignedCover =
                     s?.album?.coverURL ? await generateSignedUrl(extractKey(s.album.coverURL)) : null;
 
+                const lastAdd = lastAddBySongID.get(String(item.songID));
+
                 return {
-                    playlistSongID: item.playlistSongID,
+                    playlistID: item.playlistID,
+                    songID: item.songID,
                     position: item.position,
+                    addedAt: item.addedAt ?? null,
+                    addedBy: lastAdd?.user
+                        ? { userID: lastAdd.user.userID, userName: lastAdd.user.userName }
+                        : null,
 
                     creatorName: s?.creator?.user?.userName ?? null,
 
@@ -442,7 +525,7 @@ const getPlaylistSongs = async (req, res) => {
 
                             album: s.album
                                 ? {
-                                    ...s.album.toJSON?.() ? s.album.toJSON() : s.album,
+                                    ...(typeof s.album.toJSON === "function" ? s.album.toJSON() : s.album),
                                     signedCover: albumSignedCover,
                                 }
                                 : null,
@@ -506,58 +589,65 @@ const reorderPlaylistSongs = async (req, res) => {
     try {
         const { order } = req.body;
         const playlistID = req.params.id;
+        const userID = req.user.userID ?? req.user.id;
 
-        if (!Array.isArray(order))
+        if (!Array.isArray(order)) {
             return res.status(400).json({ message: "Order must be an array" });
+        }
+
+        // upewnij się, że to liczby
+        const orderNums = order.map((x) => Number(x)).filter((x) => Number.isFinite(x));
+        if (orderNums.length !== order.length) {
+            return res.status(400).json({ message: "Order must contain valid songIDs" });
+        }
 
         const playlist = await Playlist.findByPk(playlistID);
-        if (!playlist)
-            return res.status(404).json({ message: "Playlist not found" });
+        if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
-        if (!canAccessPlaylist(playlist, req.user.id)) {
+        if (!(await canAccessPlaylist(playlist, userID, models))) {
             return res.status(403).json({ message: "This playlist is private" });
         }
 
-        if (!canEditPlaylist(playlist, req.user.id)) {
+        if (!(await canEditPlaylist(playlist, userID, models))) {
             return res.status(403).json({ message: "Not authorized to modify this playlist" });
         }
 
         const items = await PlaylistSongs.findAll({
             where: { playlistID },
             attributes: ["songID"],
-            raw: true
+            raw: true,
         });
 
-        const playlistSongIDs = items.map(i => i.songID);
-
-        if (order.length !== playlistSongIDs.length) {
+        const playlistSongIDs = items.map((i) => Number(i.songID));
+        if (orderNums.length !== playlistSongIDs.length) {
             return res.status(400).json({
-                message: "Order must include all songs in the playlist"
+                message: "Order must include all songs in the playlist",
             });
         }
 
-        const invalid = order.filter(id => !playlistSongIDs.includes(id));
+        const setA = new Set(playlistSongIDs);
+        const invalid = orderNums.filter((sid) => !setA.has(sid));
         if (invalid.length) {
             return res.status(400).json({
                 message: "Some songs do not belong to this playlist",
-                invalidSongIDs: invalid
+                invalidSongIDs: invalid,
             });
         }
 
-        for (let i = 0; i < order.length; i++) {
+        // (opcjonalnie) jeśli order ma duplikaty
+        const setB = new Set(orderNums);
+        if (setB.size !== orderNums.length) {
+            return res.status(400).json({ message: "Order contains duplicates" });
+        }
+
+        for (let i = 0; i < orderNums.length; i++) {
             await PlaylistSongs.update(
                 { position: i + 1 },
-                {
-                    where: {
-                        playlistID,
-                        songID: order[i]
-                    }
-                }
+                { where: { playlistID, songID: orderNums[i] } }
             );
         }
 
         res.json({ message: "Playlist reordered" });
-
     } catch (err) {
         console.error("REORDER PLAYLIST ERROR:", err);
         res.status(500).json({ message: "Server error" });
@@ -589,23 +679,23 @@ const changePlaylistVisibility = async (req, res) => {
     try {
         const { visibility } = req.body;
         const playlistID = req.params.id;
+        const userID = req.user.userID ?? req.user.id;
 
         if (!["P", "R"].includes(visibility)) {
             return res.status(400).json({ message: "Invalid visibility value" });
         }
 
         const playlist = await Playlist.findByPk(playlistID);
-        if (!playlist)
-            return res.status(404).json({ message: "Playlist not found" });
+        if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
-        if (playlist.userID !== req.user.id)
+        if (Number(playlist.userID) !== Number(userID)) {
             return res.status(403).json({ message: "Only owner can change visibility" });
+        }
 
         playlist.visibility = visibility;
         await playlist.save();
 
         res.json({ message: "Visibility updated", visibility });
-
     } catch (err) {
         console.error("CHANGE PLAYLIST VISIBILITY ERROR:", err);
         res.status(500).json({ message: "Server error" });
@@ -617,25 +707,27 @@ const toggleCollaborative = async (req, res) => {
         const { isCollaborative } = req.body;
         const playlistID = req.params.id;
 
-        if (!["Y", "N"].includes(isCollaborative)) {
-            return res.status(400).json({ message: "Invalid value" });
+        if (typeof isCollaborative !== "boolean") {
+            return res.status(400).json({ message: "Invalid value (boolean expected)" });
         }
 
         const playlist = await Playlist.findByPk(playlistID);
-        if (!playlist)
+        if (!playlist) {
             return res.status(404).json({ message: "Playlist not found" });
+        }
 
-        if (playlist.userID !== req.user.id)
+        const userID = req.user.userID ?? req.user.id;
+        if (playlist.userID !== userID) {
             return res.status(403).json({ message: "Only owner can change collaborative mode" });
+        }
 
         playlist.isCollaborative = isCollaborative;
         await playlist.save();
 
         res.json({
             message: "Collaborative mode updated",
-            isCollaborative
+            isCollaborative: playlist.isCollaborative,
         });
-
     } catch (err) {
         console.error("TOGGLE COLLABORATIVE ERROR:", err);
         res.status(500).json({ message: "Server error" });
