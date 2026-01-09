@@ -26,10 +26,44 @@ const s3 = new S3Client({
     }
 });
 
+const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
+
+const getReqUserID = (req) => Number(req.user?.userID ?? req.user?.id);
+const isAdminReq = (req) => Number(req.user?.roleID) === ADMIN_ROLE_ID;
+
+const canSeeHiddenSong = async (song, req) => {
+    if (!song) return false;
+
+    // admin zawsze
+    if (isAdminReq(req)) return true;
+
+    // owner (twórca utworu)
+    // 1) jeśli token ma creatorID
+    const tokenCreatorID = Number(req.user?.creatorID);
+    if (Number.isFinite(tokenCreatorID) && tokenCreatorID > 0) {
+        return tokenCreatorID === Number(song.creatorID);
+    }
+
+    // 2) fallback: po userID -> creatorProfile
+    const userID = getReqUserID(req);
+    if (!Number.isFinite(userID) || userID <= 0) return false;
+
+    const creator = await CreatorProfile.findOne({
+        where: { userID, isActive: true },
+        attributes: ["creatorID"],
+    });
+
+    if (!creator) return false;
+    return Number(creator.creatorID) === Number(song.creatorID);
+};
+
 // Pojedynczy utwór
 const getSong = async (req, res) => {
     try {
-        const { songID } = req.params;
+        const songID = Number(req.params.songID);
+        if (!Number.isFinite(songID) || songID <= 0) {
+            return res.status(400).json({ message: "Invalid song id" });
+        }
 
         const song = await Song.findByPk(songID, {
             include: [
@@ -55,29 +89,25 @@ const getSong = async (req, res) => {
             return res.status(404).json({ message: "Song not found" });
         }
 
-        if (song.moderationStatus !== "ACTIVE") {
-            return res.status(403).json({
-                message: "This song is not available",
-            });
+        const privileged = await canSeeHiddenSong(song, req);
+
+        // jeśli utwór ukryty -> tylko admin/owner
+        if (song.moderationStatus !== "ACTIVE" && !privileged) {
+            return res.status(403).json({ message: "This song is not available" });
         }
 
-        const audioKey = song.fileURL
-            ? song.fileURL.split(".amazonaws.com/")[1]
-            : null;
+        const audioKey = song.fileURL ? extractKey(song.fileURL) : null;
+        const coverKey = song.coverURL ? extractKey(song.coverURL) : null;
 
-        const coverKey = song.coverURL
-            ? song.coverURL.split(".amazonaws.com/")[1]
-            : null;
-
-        const albumCoverKey = song.album?.coverURL
-            ? song.album.coverURL.split(".amazonaws.com/")[1]
-            : null;
-
+        const albumCoverKey = song.album?.coverURL ? extractKey(song.album.coverURL) : null;
         const creatorAvatarKey = song.creator?.user?.profilePicURL
-            ? song.creator.user.profilePicURL.split(".amazonaws.com/")[1]
+            ? extractKey(song.creator.user.profilePicURL)
             : null;
 
-        res.json({
+        const isHidden = song.moderationStatus !== "ACTIVE";
+        const canStream = privileged ? true : !isHidden;
+
+        return res.json({
             songID: song.songID,
             songName: song.songName,
             description: song.description ?? "",
@@ -87,7 +117,7 @@ const getSong = async (req, res) => {
             creatorName: song.creator?.user?.userName ?? null,
             signedProfilePicURL: creatorAvatarKey ? await generateSignedUrl(creatorAvatarKey) : null,
 
-            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+            signedAudio: canStream && audioKey ? await generateSignedUrl(audioKey) : null,
             signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
 
             album: song.album
@@ -100,7 +130,7 @@ const getSong = async (req, res) => {
         });
     } catch (err) {
         console.error("GET SONG ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -114,9 +144,7 @@ const getSongsList = async (req, res) => {
                     model: CreatorProfile,
                     as: "creator",
                     attributes: ["creatorID"],
-                    include: [
-                        { model: User, as: "user", attributes: ["userID", "userName"] },
-                    ],
+                    include: [{ model: User, as: "user", attributes: ["userID", "userName"] }],
                 },
             ],
             order: [["createdAt", "DESC"]],
@@ -124,8 +152,8 @@ const getSongsList = async (req, res) => {
 
         const result = await Promise.all(
             songs.map(async (song) => {
-                const audioKey = extractKey(song.fileURL);
-                const coverKey = extractKey(song.coverURL);
+                const audioKey = song.fileURL ? extractKey(song.fileURL) : null;
+                const coverKey = song.coverURL ? extractKey(song.coverURL) : null;
 
                 return {
                     songID: song.songID,
@@ -139,22 +167,29 @@ const getSongsList = async (req, res) => {
             })
         );
 
-        res.json(result);
+        return res.json(result);
     } catch (err) {
         console.error("GET SONGS LIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
 const getMySongs = async (req, res) => {
     try {
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
         const creator = await CreatorProfile.findOne({
-            where: { userID: req.user.id, isActive: true },
+            where: { userID, isActive: true },
             attributes: ["creatorID"],
         });
+
         if (!creator) return res.status(403).json({ message: "Creator profile not found" });
 
         const where = { creatorID: creator.creatorID };
+
         if (String(req.query.unassigned) === "1") {
             where.albumID = null;
         }

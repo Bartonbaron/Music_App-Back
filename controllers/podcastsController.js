@@ -3,16 +3,45 @@ const { s3, generateSignedUrl } = require("../config/s3");
 const mm = require("music-metadata");
 const {Op} = require("sequelize");
 
-const { models, sequelize } = require("../models");
+const { models } = require("../models");
 const Podcast = models.podcasts;
 const CreatorProfile = models.creatorprofiles;
-const User = models.users;
 const FavoritePodcasts = models.favoritepodcasts;
 const StreamHistory = models.streamhistory;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
 const extractKey = require("../utils/extractKey");
+require("dotenv").config();
+const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
+
+const getReqUserID = (req) => Number(req.user?.userID ?? req.user?.id);
+const isAdminReq = (req) => Number(req.user?.roleID) === ADMIN_ROLE_ID;
+
+const canSeeHiddenPodcast = async (podcast, req) => {
+    if (!podcast) return false;
+
+    // admin zawsze
+    if (isAdminReq(req)) return true;
+
+    // 1) jeśli JWT niesie creatorID
+    const tokenCreatorID = Number(req.user?.creatorID);
+    if (Number.isFinite(tokenCreatorID) && tokenCreatorID > 0) {
+        return tokenCreatorID === Number(podcast.creatorID);
+    }
+
+    // 2) fallback: po userID -> creatorProfile
+    const userID = getReqUserID(req);
+    if (!Number.isFinite(userID) || userID <= 0) return false;
+
+    const creator = await CreatorProfile.findOne({
+        where: { userID, isActive: true },
+        attributes: ["creatorID"],
+    });
+
+    if (!creator) return false;
+    return Number(creator.creatorID) === Number(podcast.creatorID);
+};
 
 // UPLOAD PODCAST (Tylko twórca)
 const uploadPodcast = async (req, res) => {
@@ -113,7 +142,12 @@ const getPodcast = async (req, res) => {
     try {
         const User = models.users;
 
-        const podcast = await Podcast.findByPk(req.params.id, {
+        const podcastID = Number(req.params.id);
+        if (!Number.isFinite(podcastID) || podcastID <= 0) {
+            return res.status(400).json({ message: "Invalid podcast id" });
+        }
+
+        const podcast = await Podcast.findByPk(podcastID, {
             include: [
                 {
                     model: CreatorProfile,
@@ -125,7 +159,7 @@ const getPodcast = async (req, res) => {
                             model: User,
                             as: "user",
                             required: false,
-                            attributes: ["userName"],
+                            attributes: ["userID", "userName"],
                         },
                     ],
                 },
@@ -136,23 +170,84 @@ const getPodcast = async (req, res) => {
             return res.status(404).json({ message: "Podcast not found" });
         }
 
-        if (podcast.moderationStatus !== "ACTIVE") {
+        const privileged = await canSeeHiddenPodcast(podcast, req);
+
+        // HIDDEN / nie ACTIVE -> tylko owner/admin
+        if (podcast.moderationStatus !== "ACTIVE" && !privileged) {
             return res.status(403).json({ message: "This podcast is not available" });
         }
 
-        res.json({
+        const audioKey = podcast.fileURL ? extractKey(podcast.fileURL) : null;
+        const coverKey = podcast.coverURL ? extractKey(podcast.coverURL) : null;
+
+        const canStream = true;
+
+        return res.json({
             ...podcast.toJSON(),
             creatorName: podcast?.creator?.user?.userName ?? null,
-            signedAudio: podcast.fileURL
-                ? await generateSignedUrl(extractKey(podcast.fileURL))
-                : null,
-            signedCover: podcast.coverURL
-                ? await generateSignedUrl(extractKey(podcast.coverURL))
-                : null,
+            duration: podcast.duration,
+            signedAudio: canStream && audioKey ? await generateSignedUrl(audioKey) : null,
+            signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
         });
     } catch (err) {
         console.error("GET PODCAST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
+const getMyPodcasts = async (req, res) => {
+    try {
+        const userID = Number(req.user?.userID ?? req.user?.id);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        // znajdź aktywny profil twórcy
+        const creator = await CreatorProfile.findOne({
+            where: { userID, isActive: true },
+            attributes: ["creatorID"],
+        });
+
+        if (!creator) {
+            return res.status(403).json({ message: "Creator profile not found" });
+        }
+
+        // opcjonalne filtry
+        const statusQ = String(req.query.moderationStatus || "").toUpperCase();
+        const where = { creatorID: creator.creatorID };
+
+        if (statusQ) {
+            if (!["ACTIVE", "HIDDEN"].includes(statusQ)) {
+                return res.status(400).json({ message: "Invalid moderationStatus" });
+            }
+            where.moderationStatus = statusQ;
+        }
+
+        const limit = Math.min(Number(req.query.limit) || 200, 500);
+
+        const podcasts = await Podcast.findAll({
+            where,
+            order: [["createdAt", "DESC"]],
+            limit,
+        });
+
+        const result = await Promise.all(
+            podcasts.map(async (p) => {
+                const audioKey = p.fileURL ? extractKey(p.fileURL) : null;
+                const coverKey = p.coverURL ? extractKey(p.coverURL) : null;
+
+                return {
+                    ...p.toJSON(),
+                    signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
+                };
+            })
+        );
+
+        return res.json({ podcasts: result });
+    } catch (err) {
+        console.error("GET MY PODCASTS ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -162,9 +257,7 @@ const getAllPodcasts = async (req, res) => {
         const User = models.users;
 
         const podcasts = await Podcast.findAll({
-            where: {
-                moderationStatus: "ACTIVE",
-            },
+            where: { moderationStatus: "ACTIVE" },
             include: [
                 {
                     model: CreatorProfile,
@@ -174,7 +267,7 @@ const getAllPodcasts = async (req, res) => {
                         {
                             model: User,
                             as: "user",
-                            attributes: ["userName"],
+                            attributes: ["userID", "userName"],
                         },
                     ],
                 },
@@ -183,18 +276,23 @@ const getAllPodcasts = async (req, res) => {
         });
 
         const result = await Promise.all(
-            podcasts.map(async (p) => ({
-                ...p.toJSON(),
-                creatorName: p?.creator?.user?.userName ?? null,
-                signedAudio: p.fileURL ? await generateSignedUrl(extractKey(p.fileURL)) : null,
-                signedCover: p.coverURL ? await generateSignedUrl(extractKey(p.coverURL)) : null,
-            }))
+            podcasts.map(async (p) => {
+                const audioKey = p.fileURL ? extractKey(p.fileURL) : null;
+                const coverKey = p.coverURL ? extractKey(p.coverURL) : null;
+
+                return {
+                    ...p.toJSON(),
+                    creatorName: p?.creator?.user?.userName ?? null,
+                    signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
+                };
+            })
         );
 
-        res.json(result);
+        return res.json(result);
     } catch (err) {
         console.error("GET PODCAST LIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -268,7 +366,7 @@ const updatePodcast = async (req, res) => {
 
             await s3.send(
                 new PutObjectCommand({
-                    Bucket: BUCKET, // u Ciebie w podcastach używasz BUCKET
+                    Bucket: BUCKET,
                     Key: coverKey,
                     Body: coverFile.buffer,
                     ContentType: coverFile.mimetype,
@@ -277,7 +375,6 @@ const updatePodcast = async (req, res) => {
 
             podcast.coverURL = `https://${BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${coverKey}`;
 
-            // usuń stary cover jeśli miał inną nazwę/klucz
             if (oldCoverKey && oldCoverKey !== coverKey) {
                 try {
                     await s3.send(
@@ -446,6 +543,7 @@ const unfavoritePodcast = async (req, res) => {
 module.exports = {
     uploadPodcast,
     getPodcast,
+    getMyPodcasts,
     getAllPodcasts,
     updatePodcast,
     deletePodcast,

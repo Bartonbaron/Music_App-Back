@@ -17,6 +17,13 @@ const PlaylistActivity = models.playlistactivities;
 const Library = models.library;
 const LibraryPlaylists = models.libraryplaylists;
 
+const isAdmin = (req) => Number(req.user?.roleID) === Number(process.env.ADMIN_ROLE_ID);
+
+const canSeeHiddenPlaylist = (playlist, req) => {
+    const uid = Number(req.user?.userID ?? req.user?.id);
+    return isAdmin(req) || Number(playlist.userID) === uid; // admin albo owner
+};
+
 const createPlaylist = async (req, res) => {
     const t = await Playlist.sequelize.transaction();
     try {
@@ -123,16 +130,12 @@ const getPlaylist = async (req, res) => {
             return res.status(404).json({ message: "Playlist not found" });
         }
 
-        if (playlist.moderationStatus !== "ACTIVE") {
-            return res.status(403).json({
-                message: "Playlist is not available"
-            });
+        if (playlist.moderationStatus !== "ACTIVE" && !canSeeHiddenPlaylist(playlist, req)) {
+            return res.status(403).json({ message: "Playlist is not available" });
         }
 
-        if (playlist.visibility === "R" && playlist.userID !== req.user.id) {
-            return res.status(403).json({
-                message: "This playlist is private"
-            });
+        if (!(await canAccessPlaylist(playlist, req.user.userID ?? req.user.id, models))) {
+            return res.status(403).json({ message: "This playlist is private" });
         }
 
         res.json({
@@ -153,6 +156,11 @@ const getPlaylistActivity = async (req, res) => {
         const playlistID = req.params.id;
 
         const playlist = await Playlist.findByPk(playlistID);
+
+        if (playlist.moderationStatus !== "ACTIVE" && !canSeeHiddenPlaylist(playlist, req)) {
+            return res.status(403).json({ message: "Playlist is not available" });
+        }
+
         if (!playlist) {
             return res.status(404).json({ message: "Playlist not found" });
         }
@@ -363,19 +371,16 @@ const removeSongFromPlaylist = async (req, res) => {
     try {
         const playlistID = Number(req.params.playlistID);
         const songID = Number(req.params.songID);
-
-        const userID = req.user.userID ?? req.user.id;
+        const userID = Number(req.user?.userID ?? req.user?.id);
 
         if (!Number.isFinite(userID) || userID <= 0) {
             await t.rollback();
             return res.status(401).json({ message: "Unauthorized" });
         }
-
         if (!Number.isFinite(playlistID) || playlistID <= 0) {
             await t.rollback();
             return res.status(400).json({ message: "Invalid playlistID" });
         }
-
         if (!Number.isFinite(songID) || songID <= 0) {
             await t.rollback();
             return res.status(400).json({ message: "Invalid songID" });
@@ -387,11 +392,15 @@ const removeSongFromPlaylist = async (req, res) => {
             return res.status(404).json({ message: "Playlist not found" });
         }
 
+        // prywatność playlisty (dostęp)
         if (!(await canAccessPlaylist(playlist, userID, models))) {
-            return res.status(403).json({message: "This playlist is private"});
+            await t.rollback();
+            return res.status(403).json({ message: "This playlist is private" });
         }
 
+        // edycja playlisty (owner / collaborator accepted / admin etc.)
         if (!(await canEditPlaylist(playlist, userID, models))) {
+            await t.rollback();
             return res.status(403).json({ message: "Not authorized to modify this playlist" });
         }
 
@@ -420,6 +429,7 @@ const removeSongFromPlaylist = async (req, res) => {
             { transaction: t }
         );
 
+        // zbij pozycje elementów po usuniętym
         await PlaylistSongs.increment(
             { position: -1 },
             {
@@ -434,7 +444,7 @@ const removeSongFromPlaylist = async (req, res) => {
         await t.commit();
         return res.json({ message: "Song removed from playlist" });
     } catch (err) {
-        await t.rollback();
+        try { await t.rollback(); } catch (_) {}
         console.error("REMOVE SONG FROM PLAYLIST ERROR:", err);
         return res.status(500).json({ message: "Server error" });
     }
@@ -442,11 +452,22 @@ const removeSongFromPlaylist = async (req, res) => {
 
 const getPlaylistSongs = async (req, res) => {
     try {
-        const playlistID = req.params.id;
-        const userID = req.user.userID ?? req.user.id;
+        const playlistID = Number(req.params.id);
+        const userID = Number(req.user?.userID ?? req.user?.id);
+
+        if (!Number.isFinite(playlistID) || playlistID <= 0) {
+            return res.status(400).json({ message: "Invalid playlist id" });
+        }
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
         const playlist = await Playlist.findByPk(playlistID);
         if (!playlist) return res.status(404).json({ message: "Playlist not found" });
+
+        if (playlist.moderationStatus !== "ACTIVE" && !canSeeHiddenPlaylist(playlist, req)) {
+            return res.status(403).json({ message: "Playlist is not available" });
+        }
 
         if (!(await canAccessPlaylist(playlist, userID, models))) {
             return res.status(403).json({ message: "This playlist is private" });
@@ -495,12 +516,17 @@ const getPlaylistSongs = async (req, res) => {
             if (!lastAddBySongID.has(key)) lastAddBySongID.set(key, a);
         }
 
-        const result = await Promise.all(
+        const mapped = await Promise.all(
             items.map(async (item) => {
                 const s = item.song;
+                if (!s) return null;
+
+                const hidden = s.moderationStatus === "HIDDEN";
 
                 const albumSignedCover =
-                    s?.album?.coverURL ? await generateSignedUrl(extractKey(s.album.coverURL)) : null;
+                    s?.album?.coverURL
+                        ? await generateSignedUrl(extractKey(s.album.coverURL))
+                        : null;
 
                 const lastAdd = lastAddBySongID.get(String(item.songID));
 
@@ -515,30 +541,37 @@ const getPlaylistSongs = async (req, res) => {
 
                     creatorName: s?.creator?.user?.userName ?? null,
 
-                    song: s
-                        ? {
-                            ...s.toJSON(),
-                            creatorName: s.creator?.user?.userName ?? null,
+                    song: {
+                        ...s.toJSON(),
+                        isHidden: hidden,
+                        creatorName: s?.creator?.user?.userName ?? null,
 
-                            signedAudio: s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null,
-                            signedCover: s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null,
-
-                            album: s.album
-                                ? {
-                                    ...(typeof s.album.toJSON === "function" ? s.album.toJSON() : s.album),
-                                    signedCover: albumSignedCover,
-                                }
+                        signedAudio:
+                            !hidden && s.fileURL
+                                ? await generateSignedUrl(extractKey(s.fileURL))
                                 : null,
-                        }
-                        : null,
+
+                        signedCover: s.coverURL
+                            ? await generateSignedUrl(extractKey(s.coverURL))
+                            : null,
+
+                        album: s.album
+                            ? {
+                                ...(typeof s.album.toJSON === "function"
+                                    ? s.album.toJSON()
+                                    : s.album),
+                                signedCover: albumSignedCover,
+                            }
+                            : null,
+                    },
                 };
             })
         );
 
-        res.json(result);
+        return res.json(mapped.filter(Boolean));
     } catch (err) {
         console.error("GET PLAYLIST SONGS ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 

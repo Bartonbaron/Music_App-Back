@@ -10,13 +10,46 @@ const LibraryAlbums = models.libraryalbums;
 const LibraryPlaylists = models.libraryplaylists;
 const FavoritePodcasts = models.favoritepodcasts;
 const FavoriteSongs = models.favoritesongs;
+const PlaylistCollaborators = models.playlistcollaborators;
 
 const { generateSignedUrl } = require("../config/s3");
 const extractKey = require("../utils/extractKey");
+const { Op } = require("sequelize");
+
+const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
+const isAdminReq = (req) => Number(req.user?.roleID) === ADMIN_ROLE_ID;
+
+const getReqUserID = (req) => Number(req.user?.userID ?? req.user?.id);
+
+const getReqCreatorID = async (req) => {
+    const tokenCreatorID = Number(req.user?.creatorID);
+    if (Number.isFinite(tokenCreatorID) && tokenCreatorID > 0) return tokenCreatorID;
+
+    const userID = getReqUserID(req);
+    if (!Number.isFinite(userID) || userID <= 0) return null;
+
+    const creator = await CreatorProfile.findOne({ where: { userID }, attributes: ["creatorID"] });
+    if (!creator) return null;
+
+    return Number(creator.creatorID);
+};
+
+const canSeeUnpublishedOrHiddenAlbum = async (album, req) => {
+    if (!album) return false;
+    if (isAdminReq(req)) return true;
+
+    const myCreatorID = await getReqCreatorID(req);
+    if (!Number.isFinite(myCreatorID) || myCreatorID <= 0) return false;
+
+    return Number(album.creatorID) === Number(myCreatorID);
+};
 
 const getLibrary = async (req, res) => {
     try {
-        const userID = req.user.id;
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
         const library = await Library.findOne({
             where: { userID },
@@ -35,13 +68,27 @@ const getLibrary = async (req, res) => {
 
         const favoriteSongs = await FavoriteSongs.findAll({
             where: { userID },
-            include: [{ model: Song, as: "song" }],
+            include: [
+                {
+                    model: Song,
+                    as: "song",
+                    where: { moderationStatus: "ACTIVE" },
+                    required: true,
+                },
+            ],
             order: [["addedAt", "DESC"]]
         });
 
         const favoritePodcasts = await FavoritePodcasts.findAll({
             where: { userID },
-            include: [{ model: Podcast, as: "podcast" }],
+            include: [
+                {
+                    model: Podcast,
+                    as: "podcast",
+                    where: { moderationStatus: "ACTIVE" },
+                    required: true,
+                },
+            ],
             order: [["addedAt", "DESC"]]
         });
 
@@ -60,9 +107,21 @@ const getLibrary = async (req, res) => {
 
 const getLibrarySongs = async (req, res) => {
     try {
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
         const favorites = await FavoriteSongs.findAll({
-            where: { userID: req.user.id },
-            include: [{ model: Song, as: "song" }],
+            where: { userID },
+            include: [
+                {
+                    model: Song,
+                    as: "song",
+                    where: { moderationStatus: "ACTIVE" },
+                    required: true,
+                },
+            ],
             order: [["addedAt", "DESC"]]
         });
 
@@ -76,9 +135,21 @@ const getLibrarySongs = async (req, res) => {
 
 const getLibraryPodcasts = async (req, res) => {
     try {
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
         const favorites = await FavoritePodcasts.findAll({
-            where: { userID: req.user.id },
-            include: [{ model: Podcast, as: "podcast" }],
+            where: { userID },
+            include: [
+                {
+                    model: Podcast,
+                    as: "podcast",
+                    where: { moderationStatus: "ACTIVE" },
+                    required: true,
+                },
+            ],
             order: [["addedAt", "DESC"]]
         });
 
@@ -92,8 +163,13 @@ const getLibraryPodcasts = async (req, res) => {
 
 const getLibraryPlaylists = async (req, res) => {
     try {
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
         const library = await Library.findOne({
-            where: { userID: req.user.id },
+            where: { userID },
             include: [
                 {
                     model: LibraryPlaylists,
@@ -115,10 +191,12 @@ const getLibraryPlaylists = async (req, res) => {
     }
 };
 
-// Zwraca jak dane mają wyglądać w UI
 const getLibraryPlaylistsList = async (req, res) => {
     try {
-        const userID = req.user.id;
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
         const library = await Library.findOne({ where: { userID } });
         if (!library) return res.status(404).json({ message: "Library not found" });
@@ -135,23 +213,50 @@ const getLibraryPlaylistsList = async (req, res) => {
             order: [["addedAt", "DESC"]],
         });
 
-        // flatten + podpis okładki
+        // 1) wstępny filtr: tylko ACTIVE
+        const base = entries
+            .map((e) => e.playlist)
+            .filter(Boolean)
+            .filter((p) => p.moderationStatus === "ACTIVE");
+
+        // 2) visibility: public / owner / ACCEPTED collaborator
+        const privateNotOwner = base
+            .filter((p) => p.visibility === "R" && Number(p.userID) !== userID)
+            .map((p) => Number(p.playlistID))
+            .filter((x) => Number.isFinite(x) && x > 0);
+
+        let acceptedSet = new Set();
+        if (privateNotOwner.length && PlaylistCollaborators) {
+            const rows = await PlaylistCollaborators.findAll({
+                where: {
+                    userID,
+                    status: "ACCEPTED",
+                    playlistID: { [Op.in]: privateNotOwner },
+                },
+                attributes: ["playlistID"],
+                raw: true,
+            });
+            acceptedSet = new Set(rows.map((r) => String(r.playlistID)));
+        }
+
+        const visible = base.filter((p) => {
+            if (p.visibility === "P") return true;
+            if (Number(p.userID) === userID) return true;
+            return acceptedSet.has(String(p.playlistID));
+        });
+
         const result = await Promise.all(
-            entries.map(async (e) => {
-                const p = e.playlist;
-                if (!p) return null;
-
+            visible.map(async (p) => {
                 const coverKey = p.coverURL ? extractKey(p.coverURL) : null;
-
                 return {
                     ...p.toJSON(),
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
-                    creatorName: p.user?.userName ?? null, // pomocne w UI
+                    creatorName: p.user?.userName ?? null,
                 };
             })
         );
 
-        res.json(result.filter(Boolean));
+        res.json(result);
     } catch (err) {
         console.error("GET LIBRARY PLAYLISTS LIST ERROR:", err);
         res.status(500).json({ message: "Server error" });
@@ -160,13 +265,14 @@ const getLibraryPlaylistsList = async (req, res) => {
 
 const getLibraryAlbums = async (req, res) => {
     try {
-        const userID = req.user.id;
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
-        // znajdź bibliotekę użytkownika
         const library = await Library.findOne({ where: { userID } });
         if (!library) return res.status(404).json({ message: "Library not found" });
 
-        // pobierz albumy z join-table
         const rows = await LibraryAlbums.findAll({
             where: { libraryID: library.libraryID },
             include: [
@@ -192,13 +298,19 @@ const getLibraryAlbums = async (req, res) => {
             order: [["addedAt", "DESC"]],
         });
 
-        // mapowanie na prosty payload dla frontu (sidebar)
         const result = await Promise.all(
             rows
                 .filter((r) => !!r.album)
                 .map(async (r) => {
-                    const a = r.album.toJSON();
+                    const album = r.album;
+                    const privileged = await canSeeUnpublishedOrHiddenAlbum(album, req);
 
+                    if (!privileged) {
+                        if (album.moderationStatus !== "ACTIVE") return null;
+                        if (!album.isPublished) return null;
+                    }
+
+                    const a = album.toJSON();
                     return {
                         albumID: a.albumID,
                         albumName: a.albumName,
@@ -209,7 +321,7 @@ const getLibraryAlbums = async (req, res) => {
                 })
         );
 
-        res.json(result);
+        res.json(result.filter(Boolean));
     } catch (err) {
         console.error("GET LIBRARY ALBUMS ERROR:", err);
         res.status(500).json({ message: "Server error" });
@@ -218,7 +330,10 @@ const getLibraryAlbums = async (req, res) => {
 
 const getLikedSongsList = async (req, res) => {
     try {
-        const userID = req.user.id;
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
         const favorites = await FavoriteSongs.findAll({
             where: { userID },
@@ -226,6 +341,8 @@ const getLikedSongsList = async (req, res) => {
                 {
                     model: Song,
                     as: "song",
+                    where: { moderationStatus: { [Op.in]: ["ACTIVE", "HIDDEN"] } },
+                    required: true,
                     include: [
                         {
                             model: CreatorProfile,
@@ -248,12 +365,15 @@ const getLikedSongsList = async (req, res) => {
                 const s = f.song;
                 if (!s) return null;
 
-                const signedAudio = s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null;
+                const isHidden = s.moderationStatus === "HIDDEN";
+
+                const signedAudio =
+                    !isHidden && s.fileURL ? await generateSignedUrl(extractKey(s.fileURL)) : null;
+
                 const signedSongCover = s.coverURL ? await generateSignedUrl(extractKey(s.coverURL)) : null;
 
                 const a = s.album || null;
-                const signedAlbumCover =
-                    a?.coverURL ? await generateSignedUrl(extractKey(a.coverURL)) : null;
+                const signedAlbumCover = a?.coverURL ? await generateSignedUrl(extractKey(a.coverURL)) : null;
 
                 const effectiveCover = signedSongCover || signedAlbumCover || null;
 
@@ -264,36 +384,40 @@ const getLikedSongsList = async (req, res) => {
                     songName: s.songName,
                     duration: s.duration,
                     likeCount: s.likeCount ?? 0,
-
                     creatorName: s?.creator?.user?.userName ?? null,
 
-                    signedAudio,
+                    moderationStatus: s.moderationStatus,
+                    isHidden,
 
-                    signedCover: signedSongCover,          // okładka utworu (jeśli jest)
+                    signedAudio,
+                    signedCover: signedSongCover,
+
                     album: a
                         ? {
                             albumID: a.albumID,
                             albumName: a.albumName,
-                            signedCover: signedAlbumCover,    // okładka albumu
+                            signedCover: signedAlbumCover,
                         }
                         : null,
 
-                    // opcjonalnie: gotowa okładka do szybkiego użycia w UI
                     effectiveCover,
                 };
             })
         );
 
-        res.json(result.filter(Boolean));
+        return res.json(result.filter(Boolean));
     } catch (err) {
         console.error("GET LIKED SONGS ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
 const getFavoritePodcasts = async (req, res) => {
     try {
-        const userID = req.user.id;
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
 
         const rows = await FavoritePodcasts.findAll({
             where: { userID },
@@ -301,7 +425,8 @@ const getFavoritePodcasts = async (req, res) => {
                 {
                     model: Podcast,
                     as: "podcast",
-                    where: { moderationStatus: "ACTIVE" },
+                    where: { moderationStatus: { [Op.in]: ["ACTIVE", "HIDDEN"] } },
+                    required: true,
                     include: [
                         {
                             model: CreatorProfile,
@@ -326,25 +451,26 @@ const getFavoritePodcasts = async (req, res) => {
                 const p = row.podcast;
                 if (!p) return null;
 
+                const isHidden = p.moderationStatus === "HIDDEN";
+
                 return {
                     podcastID: p.podcastID,
-                    podcastName: p.podcastName,
+                    title: p.title ?? p.podcastName ?? null,
                     duration: p.duration,
                     creatorName: p?.creator?.user?.userName ?? null,
-                    signedAudio: p.fileURL
-                        ? await generateSignedUrl(extractKey(p.fileURL))
-                        : null,
-                    signedCover: p.coverURL
-                        ? await generateSignedUrl(extractKey(p.coverURL))
-                        : null,
+
+                    moderationStatus: p.moderationStatus,
+                    isHidden,
+                    signedAudio: !isHidden && p.fileURL ? await generateSignedUrl(extractKey(p.fileURL)) : null,
+                    signedCover: p.coverURL ? await generateSignedUrl(extractKey(p.coverURL)) : null,
                 };
             })
         );
 
-        res.json(result.filter(Boolean));
+        return res.json(result.filter(Boolean));
     } catch (err) {
         console.error("GET FAVORITE PODCASTS ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -357,5 +483,4 @@ module.exports = {
     getLibraryAlbums,
     getLikedSongsList,
     getFavoritePodcasts
-}
-
+};

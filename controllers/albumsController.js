@@ -1,10 +1,9 @@
+require("dotenv").config();
 const { models, sequelize } = require("../models");
-const { PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
-const { s3, generateSignedUrl } = require("../config/s3");
-const {Op} = require("sequelize");
+const { Op } = require("sequelize");
+
+const { generateSignedUrl } = require("../config/s3");
 const extractKey = require("../utils/extractKey");
-const uploadCover = require("../utils/uploadCover");
-const deleteCover = require("../utils/deleteCover");
 
 const Album = models.albums;
 const Song = models.songs;
@@ -13,14 +12,64 @@ const LibraryAlbums = models.libraryalbums;
 const CreatorProfile = models.creatorprofiles;
 const User = models.users;
 
-const BUCKET = process.env.AWS_S3_BUCKET;
+const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
 
+const getReqUserID = (req) => Number(req.user?.userID ?? req.user?.id);
+const isAdminReq = (req) => Number(req.user?.roleID) === ADMIN_ROLE_ID;
+
+const canSeeUnpublishedOrHiddenAlbum = async (album, req) => {
+    if (!album) return false;
+
+    // admin zawsze
+    if (isAdminReq(req)) return true;
+
+    // owner (twórca albumu)
+    // 1) jeśli JWT niesie creatorID:
+    const tokenCreatorID = Number(req.user?.creatorID);
+    if (Number.isFinite(tokenCreatorID) && tokenCreatorID > 0) {
+        return tokenCreatorID === Number(album.creatorID);
+    }
+
+    // 2) fallback: creatorProfile po userID
+    const userID = getReqUserID(req);
+    if (!Number.isFinite(userID) || userID <= 0) return false;
+
+    const creator = await CreatorProfile.findOne({
+        where: { userID },
+        attributes: ["creatorID"],
+    });
+
+    if (!creator) return false;
+    return Number(creator.creatorID) === Number(album.creatorID);
+};
+
+const signCover = async (coverURL) => {
+    if (!coverURL) return null;
+    try {
+        return await generateSignedUrl(extractKey(coverURL));
+    } catch {
+        return null;
+    }
+};
+
+const signAudio = async (fileURL) => {
+    if (!fileURL) return null;
+    try {
+        return await generateSignedUrl(extractKey(fileURL));
+    } catch {
+        return null;
+    }
+};
+
+// =====================================================
+// GET /albums (publiczne: tylko published + ACTIVE)
+// =====================================================
 const getAllAlbums = async (req, res) => {
     try {
         const albums = await Album.findAll({
             where: {
                 isPublished: true,
-                moderationStatus: "ACTIVE"
+                moderationStatus: "ACTIVE",
             },
             include: [
                 {
@@ -31,35 +80,40 @@ const getAllAlbums = async (req, res) => {
                         {
                             model: User,
                             as: "user",
-                            attributes: ["userID", "userName"]
-                        }
-                    ]
-                }
+                            attributes: ["userID", "userName"],
+                        },
+                    ],
+                },
             ],
-            order: [["createdAt", "DESC"]]
+            order: [["createdAt", "DESC"]],
         });
 
         const result = await Promise.all(
             albums.map(async (album) => ({
                 ...album.toJSON(),
-                signedCover: album.coverURL
-                    ? await generateSignedUrl(extractKey(album.coverURL))
-                    : null
+                signedCover: await signCover(album.coverURL),
             }))
         );
 
-        res.json(result);
-
+        return res.json(result);
     } catch (err) {
         console.error("GET ALBUMS ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
+// =====================================================
+// GET /albums/my (creator: wszystkie moje, także unpublished/hidden)
+// =====================================================
 const getMyAlbums = async (req, res) => {
     try {
+        const userID = getReqUserID(req);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
         const creator = await CreatorProfile.findOne({
-            where: { userID: req.user.id, isActive: true },
+            where: { userID, isActive: true },
             attributes: ["creatorID"],
         });
 
@@ -71,13 +125,10 @@ const getMyAlbums = async (req, res) => {
         });
 
         const presented = await Promise.all(
-            albums.map(async (a) => {
-                const coverKey = a.coverURL ? extractKey(a.coverURL) : null;
-                return {
-                    ...a.toJSON(),
-                    signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
-                };
-            })
+            albums.map(async (a) => ({
+                ...a.toJSON(),
+                signedCover: await signCover(a.coverURL),
+            }))
         );
 
         return res.json({ albums: presented });
@@ -89,7 +140,12 @@ const getMyAlbums = async (req, res) => {
 
 const getAlbum = async (req, res) => {
     try {
-        const album = await Album.findByPk(req.params.id, {
+        const albumID = Number(req.params.id);
+        if (!Number.isFinite(albumID) || albumID <= 0) {
+            return res.status(400).json({ message: "Invalid album id" });
+        }
+
+        const album = await Album.findByPk(albumID, {
             include: [
                 {
                     model: CreatorProfile,
@@ -108,174 +164,161 @@ const getAlbum = async (req, res) => {
             ],
         });
 
-        if (!album) {
-            return res.status(404).json({ message: "Album not found" });
+        if (!album) return res.status(404).json({ message: "Album not found" });
+
+        const privileged = await canSeeUnpublishedOrHiddenAlbum(album, req);
+
+        if (album.moderationStatus !== "ACTIVE" && !privileged) {
+            return res.status(403).json({ message: "Album is not available" });
         }
 
-        if (album.moderationStatus !== "ACTIVE") {
+        if (!album.isPublished && !privileged) {
             return res.status(403).json({
-                message: "Album is not available"
+                message: "Album will be released on",
+                releaseDate: album.releaseDate,
             });
         }
 
-        if (!album.isPublished) {
-            const creator = await CreatorProfile.findOne({
-                where: { userID: req.user.id }
-            });
-
-            if (!creator || creator.creatorID !== album.creatorID) {
-                return res.status(403).json({
-                    message: "Album will be released on",
-                    releaseDate: album.releaseDate
-                });
-            }
-        }
-
-        res.json({
+        return res.json({
             ...album.toJSON(),
-            signedCover: album.coverURL
-                ? await generateSignedUrl(extractKey(album.coverURL))
-                : null
+            signedCover: await signCover(album.coverURL),
         });
-
     } catch (err) {
         console.error("GET ALBUM ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
 const getAlbumSongs = async (req, res) => {
     try {
-        const album = await Album.findByPk(req.params.id);
-        if (!album) {
-            return res.status(404).json({ message: "Album not found" });
+        const albumID = Number(req.params.id);
+        if (!Number.isFinite(albumID) || albumID <= 0) {
+            return res.status(400).json({ message: "Invalid album id" });
         }
 
-        if (album.moderationStatus !== "ACTIVE") {
+        const album = await Album.findByPk(albumID);
+        if (!album) return res.status(404).json({ message: "Album not found" });
+
+        const privileged = await canSeeUnpublishedOrHiddenAlbum(album, req);
+
+        if (album.moderationStatus !== "ACTIVE" && !privileged) {
             return res.status(403).json({ message: "Album is not available" });
         }
 
-        // premiera
-        if (!album.isPublished) {
-            const creator = await CreatorProfile.findOne({
-                where: { userID: req.user.id }
+        if (!album.isPublished && !privileged) {
+            return res.status(403).json({
+                message: "Album will be released on",
+                releaseDate: album.releaseDate,
             });
-
-            if (!creator || creator.creatorID !== album.creatorID) {
-                return res.status(403).json({
-                    message: "Album will be released on",
-                    releaseDate: album.releaseDate
-                });
-            }
         }
 
         const songs = await Song.findAll({
             where: { albumID: album.albumID },
-            order: [["trackNumber", "ASC"]]
+            order: [["trackNumber", "ASC"]],
         });
 
         const result = await Promise.all(
-            songs.map(async (song) => ({
-                ...song.toJSON(),
-                signedAudio: song.fileURL
-                    ? await generateSignedUrl(extractKey(song.fileURL))
-                    : null,
-                signedCover: song.coverURL
-                    ? await generateSignedUrl(extractKey(song.coverURL))
-                    : null
-            }))
+            songs.map(async (song) => {
+                const hidden = song.moderationStatus === "HIDDEN";
+
+                return {
+                    ...song.toJSON(),
+                    isHidden: hidden,
+                    signedAudio:
+                        !hidden && song.fileURL
+                            ? await signAudio(song.fileURL)
+                            : null,
+                    signedCover: await signCover(song.coverURL),
+                };
+            })
         );
 
-        const albumSignedCover = album.coverURL
-            ? await generateSignedUrl(extractKey(album.coverURL))
-            : null;
-
-        res.json({
+        return res.json({
             albumID: album.albumID,
-            albumSignedCover,
+            albumSignedCover: await signCover(album.coverURL),
             count: result.length,
-            songs: result
+            songs: result,
         });
-
     } catch (err) {
         console.error("GET ALBUM SONGS ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
 const addAlbumToLibrary = async (req, res) => {
     try {
-        const userID = req.user.id;
-        const albumID = req.params.id;
+        const userID = getReqUserID(req);
+        const albumID = Number(req.params.id);
+
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+        if (!Number.isFinite(albumID) || albumID <= 0) {
+            return res.status(400).json({ message: "Invalid album id" });
+        }
 
         const album = await Album.findByPk(albumID);
-        if (!album) {
-            return res.status(404).json({ message: "Album not found" });
+        if (!album) return res.status(404).json({ message: "Album not found" });
+
+        const privileged = await canSeeUnpublishedOrHiddenAlbum(album, req);
+
+        if (album.moderationStatus !== "ACTIVE" && !privileged) {
+            return res.status(403).json({ message: "Album is not available" });
         }
 
-        // Blokada premiery
-        if (!album.isPublished) {
-            const creator = await CreatorProfile.findOne({
-                where: { userID }
+        if (!album.isPublished && !privileged) {
+            return res.status(403).json({
+                message: "Album will be released on",
+                releaseDate: album.releaseDate,
             });
-
-            if (!creator || creator.creatorID !== album.creatorID) {
-                return res.status(403).json({
-                    message: "Album will be released on",
-                    releaseDate: album.releaseDate
-                });
-            }
         }
 
-        const library = await Library.findOne({
-            where: { userID }
-        });
+        const library = await Library.findOne({ where: { userID } });
+        if (!library) return res.status(404).json({ message: "Library not found" });
 
         const exists = await LibraryAlbums.findOne({
-            where: {
-                libraryID: library.libraryID,
-                albumID
-            }
+            where: { libraryID: library.libraryID, albumID },
         });
 
         if (exists) {
             return res.status(400).json({ message: "Album already in library" });
         }
 
-        await LibraryAlbums.create({
-            libraryID: library.libraryID,
-            albumID
-        });
+        await LibraryAlbums.create({ libraryID: library.libraryID, albumID });
 
-        res.json({ message: "Album added to library" });
-
+        return res.json({ message: "Album added to library" });
     } catch (err) {
         console.error("ADD ALBUM TO LIBRARY ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
+// =====================================================
+// DELETE /albums/:id/library
+// =====================================================
 const removeAlbumFromLibrary = async (req, res) => {
     try {
-        const userID = req.user.id;
-        const albumID = req.params.id;
+        const userID = getReqUserID(req);
+        const albumID = Number(req.params.id);
 
-        const library = await Library.findOne({
-            where: { userID }
-        });
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+        if (!Number.isFinite(albumID) || albumID <= 0) {
+            return res.status(400).json({ message: "Invalid album id" });
+        }
+
+        const library = await Library.findOne({ where: { userID } });
+        if (!library) return res.status(404).json({ message: "Library not found" });
 
         await LibraryAlbums.destroy({
-            where: {
-                libraryID: library.libraryID,
-                albumID
-            }
+            where: { libraryID: library.libraryID, albumID },
         });
 
-        res.json({ message: "Album removed from library" });
-
+        return res.json({ message: "Album removed from library" });
     } catch (err) {
         console.error("REMOVE ALBUM FROM LIBRARY ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -393,11 +436,6 @@ const deleteAlbum = async (req, res) => {
         }
 
         await album.destroy();
-
-        const count = await Album.count();
-        if (count === 0) {
-            await sequelize.query("ALTER TABLE albums AUTO_INCREMENT = 1");
-        }
 
         res.json({ message: "Album deleted" });
 
@@ -802,7 +840,3 @@ module.exports = {
     deleteAlbumCover,
     publishAlbum
 };
-
-
-
-

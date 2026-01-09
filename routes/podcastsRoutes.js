@@ -4,8 +4,12 @@ const router = express.Router();
 const { authenticateToken, requireCreator } = require("../middleware/authMiddleware");
 const uploadPodcastM  = require("../middleware/uploadPodcastM");
 
-const {uploadPodcast, getPodcast, getAllPodcasts, updatePodcast, deletePodcast,
+const {uploadPodcast, getPodcast, getMyPodcasts, getAllPodcasts, updatePodcast, deletePodcast,
     incrementPodcastStream, favoritePodcast, unfavoritePodcast} = require("../controllers/podcastsController");
+
+router.get("/", authenticateToken, getAllPodcasts);
+
+router.get("/my", authenticateToken, getMyPodcasts);
 
 router.post(
     "/upload",
@@ -19,8 +23,6 @@ router.post(
 );
 
 router.get("/:id", authenticateToken, getPodcast);
-
-router.get("/", authenticateToken, getAllPodcasts);
 
 router.delete("/:id", authenticateToken, requireCreator, deletePodcast);
 
