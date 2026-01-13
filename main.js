@@ -49,7 +49,7 @@ app.use("/api/avatars", avatarRoutes);
 app.use("/api/albums", albumsRoutes);
 app.use("/api/folders", foldersRoutes);
 app.use("/api/playhistory", playHistoryRoutes);
-app.use("/api/playqueue", playQueueRoutes);
+app.use("/api/queue", playQueueRoutes);
 app.use("/api/users", usersRoutes);
 
 app.listen(port, () => {

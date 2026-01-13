@@ -1,40 +1,52 @@
-const { models } = require("../models");
+const { models, sequelize } = require("../models");
 const { Op } = require("sequelize");
 const { generateSignedUrl } = require("../config/s3");
+const extractKey = require("../utils/extractKey"); // jeśli masz już helper, użyj go
 
 const PlayQueue = models.playqueue;
 const Song = models.songs;
 const Podcast = models.podcasts;
 const CreatorProfile = models.creatorprofiles;
+const User = models.users;
 
-const extractKey = (url) => (url ? url.split(".amazonaws.com/")[1] : null);
-
-const resolveSigned = async (item, type) => {
-    if (type === "song" && item?.song) {
-        const audioKey = extractKey(item.song.fileURL);
-        const coverKey = extractKey(item.song.coverURL);
-
+const resolveSigned = async (entity, type) => {
+    if (!entity) {
         return {
-            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
-            signedCover: coverKey ? await generateSignedUrl(coverKey) : null
+            signedAudio: null,
+            signedCover: null,
+            moderationStatus: null,
+            isHidden: true,
         };
     }
 
-    if (type === "podcast" && item?.podcast) {
-        const audioKey = extractKey(item.podcast.fileURL);
-        const coverKey = extractKey(item.podcast.coverURL);
+    const status = entity.moderationStatus ?? null;
 
-        return {
-            signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
-            signedCover: coverKey ? await generateSignedUrl(coverKey) : null
-        };
-    }
+    const audioKey = entity.fileURL ? extractKey(entity.fileURL) : null;
+    const coverKey = entity.coverURL ? extractKey(entity.coverURL) : null;
 
-    return { signedAudio: null, signedCover: null };
+    const canStream =
+        type === "song"
+            ? status === "ACTIVE"
+            : true;
+
+    const isHidden =
+        type === "song"
+            ? status === "HIDDEN" || status !== "ACTIVE"
+            : false;
+
+    return {
+        signedAudio: canStream && audioKey ? await generateSignedUrl(audioKey) : null,
+        signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
+        moderationStatus: status,
+        isHidden,
+    };
 };
 
-const validateXor = (songID, podcastID) => {
-    return !(!!songID === !!podcastID);
+const validateXor = (songID, podcastID) => !(!!songID === !!podcastID);
+
+const normalizeMode = (modeRaw) => {
+    const m = String(modeRaw || "END").toUpperCase();
+    return m === "NEXT" ? "NEXT" : "END";
 };
 
 // GET /queue
@@ -45,24 +57,70 @@ const getQueue = async (req, res) => {
         const items = await PlayQueue.findAll({
             where: { userID },
             include: [
-                { model: Song, as: "song" },
-                { model: Podcast, as: "podcast" }
+                {
+                    model: Song,
+                    as: "song",
+                    required: false,
+                    include: [
+                        {
+                            model: CreatorProfile,
+                            as: "creator",
+                            required: false,
+                            include: [{ model: User, as: "user", required: false, attributes: ["userName"] }],
+                        },
+                    ],
+                },
+                {
+                    model: Podcast,
+                    as: "podcast",
+                    required: false,
+                    include: [
+                        {
+                            model: CreatorProfile,
+                            as: "creator",
+                            required: false,
+                            include: [{ model: User, as: "user", required: false, attributes: ["userName"] }],
+                        },
+                    ],
+                },
             ],
-            order: [["position", "ASC"]]
+            order: [["position", "ASC"]],
         });
 
         const result = await Promise.all(
-            items.map(async (i) => {
-                const type = i.songID ? "song" : "podcast";
-                const signed = await resolveSigned(i, type);
+            items.map(async (row) => {
+                const type = row.songID ? "song" : "podcast";
+
+                if (type === "song") {
+                    const s = row.song;
+                    const signed = await resolveSigned(s, "song");
+
+                    return {
+                        queueID: row.queueID,
+                        position: row.position,
+                        type,
+                        songID: row.songID,
+                        title: s?.songName ?? s?.title ?? (s ? `Song ${s.songID}` : "Utwór"),
+                        creatorName: s?.creator?.user?.userName ?? s?.creatorName ?? null,
+                        song: s ? s.toJSON() : null,
+                        podcast: null,
+                        ...signed,
+                    };
+                }
+
+                const p = row.podcast;
+                const signed = await resolveSigned(p, "podcast");
 
                 return {
-                    queueID: i.queueID,
-                    position: i.position,
+                    queueID: row.queueID,
+                    position: row.position,
                     type,
-                    song: i.songID ? i.song : null,
-                    podcast: i.podcastID ? i.podcast : null,
-                    ...signed
+                    podcastID: row.podcastID,
+                    title: p?.title ?? p?.podcastName ?? (p ? `Podcast ${p.podcastID}` : "Podcast"),
+                    creatorName: p?.creator?.user?.userName ?? p?.creatorName ?? null,
+                    song: null,
+                    podcast: p ? p.toJSON() : null,
+                    ...signed,
                 };
             })
         );
@@ -76,47 +134,76 @@ const getQueue = async (req, res) => {
 
 // POST /queue
 const addToQueue = async (req, res) => {
+    const t = await sequelize.transaction();
     try {
         const userID = req.user.id;
-        const { songID, podcastID } = req.body;
+        const { songID, podcastID, mode } = req.body || {};
 
         if (!validateXor(songID, podcastID)) {
-            return res.status(400).json({
-                message: "Provide exactly one of songID or podcastID"
-            });
+            await t.rollback();
+            return res.status(400).json({ message: "Provide exactly one of songID or podcastID" });
         }
 
-        // Walidacja istnienia i dostępu
+        const insertMode = normalizeMode(mode);
+
+        // Walidacja istnienia (dostęp/hidden obsłuży UI przez brak audio)
         if (songID) {
             const song = await Song.findByPk(songID);
-            if (!song) return res.status(404).json({ message: "Song not found" });
+            if (!song) {
+                await t.rollback();
+                return res.status(404).json({ message: "Song not found" });
+            }
         }
 
         if (podcastID) {
             const podcast = await Podcast.findByPk(podcastID);
-            if (!podcast) return res.status(404).json({ message: "Podcast not found" });
-
-            // Restricted podcast -> tylko twórca
-            if (podcast.visibility === "R") {
-                const creator = await CreatorProfile.findOne({ where: { userID } });
-                if (!creator || creator.creatorID !== podcast.creatorID) {
-                    return res.status(403).json({ message: "Podcast is restricted" });
-                }
+            if (!podcast) {
+                await t.rollback();
+                return res.status(404).json({ message: "Podcast not found" });
             }
         }
 
-        const lastPos =
-            (await PlayQueue.max("position", { where: { userID } })) || 0;
+        if (insertMode === "NEXT") {
+            // przesuń wszystkie pozycje w górę
+            await PlayQueue.increment(
+                { position: 1 },
+                {
+                    where: { userID },
+                    transaction: t,
+                }
+            );
 
-        const row = await PlayQueue.create({
-            userID,
-            songID: songID || null,
-            podcastID: podcastID || null,
-            position: lastPos + 1
-        });
+            const row = await PlayQueue.create(
+                {
+                    userID,
+                    songID: songID || null,
+                    podcastID: podcastID || null,
+                    position: 1,
+                },
+                { transaction: t }
+            );
 
+            await t.commit();
+            return res.status(201).json({ message: "Added to queue (NEXT)", queueID: row.queueID });
+        }
+
+        // END
+        const lastPos = (await PlayQueue.max("position", { where: { userID }, transaction: t })) || 0;
+
+        const row = await PlayQueue.create(
+            {
+                userID,
+                songID: songID || null,
+                podcastID: podcastID || null,
+                position: lastPos + 1,
+            },
+            { transaction: t }
+        );
+
+        await t.commit();
         res.status(201).json({ message: "Added to queue", queueID: row.queueID });
     } catch (err) {
+        try { await t.rollback(); } catch (_) {}
         console.error("ADD TO QUEUE ERROR:", err);
         res.status(500).json({ message: "Server error" });
     }
@@ -124,31 +211,32 @@ const addToQueue = async (req, res) => {
 
 // DELETE /queue/:id
 const removeFromQueue = async (req, res) => {
+    const t = await sequelize.transaction();
     try {
         const userID = req.user.id;
-        const queueID = req.params.id;
+        const queueID = Number(req.params.id);
 
-        const row = await PlayQueue.findByPk(queueID);
+        const row = await PlayQueue.findByPk(queueID, { transaction: t });
         if (!row || row.userID !== userID) {
+            await t.rollback();
             return res.status(404).json({ message: "Queue item not found" });
         }
 
         const removedPos = row.position;
-        await row.destroy();
+        await row.destroy({ transaction: t });
 
-        // przesuń pozycje w dół
         await PlayQueue.increment(
             { position: -1 },
             {
-                where: {
-                    userID,
-                    position: { [Op.gt]: removedPos }
-                }
+                where: { userID, position: { [Op.gt]: removedPos } },
+                transaction: t,
             }
         );
 
+        await t.commit();
         res.json({ message: "Removed from queue" });
     } catch (err) {
+        try { await t.rollback(); } catch (_) {}
         console.error("REMOVE FROM QUEUE ERROR:", err);
         res.status(500).json({ message: "Server error" });
     }
@@ -158,9 +246,7 @@ const removeFromQueue = async (req, res) => {
 const clearQueue = async (req, res) => {
     try {
         const userID = req.user.id;
-
         await PlayQueue.destroy({ where: { userID } });
-
         res.json({ message: "Queue cleared" });
     } catch (err) {
         console.error("CLEAR QUEUE ERROR:", err);
@@ -168,48 +254,55 @@ const clearQueue = async (req, res) => {
     }
 };
 
-// PATCH /queue/reorder
+// PATCH /queue/reorder body: { order: number[] } // queueID list
 const reorderQueue = async (req, res) => {
+    const t = await sequelize.transaction();
     try {
         const userID = req.user.id;
-        const { order } = req.body;
+        const { order } = req.body || {};
 
         if (!Array.isArray(order) || order.length === 0) {
+            await t.rollback();
             return res.status(400).json({ message: "order must be a non-empty array" });
         }
 
         const items = await PlayQueue.findAll({
             where: { userID },
             attributes: ["queueID"],
-            raw: true
+            raw: true,
+            transaction: t,
         });
 
         const currentIDs = items.map((i) => i.queueID);
 
         if (order.length !== currentIDs.length) {
-            return res.status(400).json({
-                message: "Order must include all items in queue"
-            });
+            await t.rollback();
+            return res.status(400).json({ message: "Order must include all items in queue" });
         }
 
         const invalid = order.filter((id) => !currentIDs.includes(id));
         if (invalid.length) {
+            await t.rollback();
             return res.status(400).json({
                 message: "Some queue items do not belong to you",
-                invalidQueueIDs: invalid
+                invalidQueueIDs: invalid,
             });
         }
 
-        // update pozycji
-        for (let i = 0; i < order.length; i++) {
-            await PlayQueue.update(
-                { position: i + 1 },
-                { where: { userID, queueID: order[i] } }
-            );
-        }
+        // batch update w transakcji
+        await Promise.all(
+            order.map((id, idx) =>
+                PlayQueue.update(
+                    { position: idx + 1 },
+                    { where: { userID, queueID: id }, transaction: t }
+                )
+            )
+        );
 
+        await t.commit();
         res.json({ message: "Queue reordered" });
     } catch (err) {
+        try { await t.rollback(); } catch (_) {}
         console.error("REORDER QUEUE ERROR:", err);
         res.status(500).json({ message: "Server error" });
     }
@@ -220,5 +313,5 @@ module.exports = {
     addToQueue,
     removeFromQueue,
     clearQueue,
-    reorderQueue
+    reorderQueue,
 };
