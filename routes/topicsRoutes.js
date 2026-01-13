@@ -6,9 +6,9 @@ const { authenticateToken, requireAdmin } = require("../middleware/authMiddlewar
 const {getAllTopics, getTopic, createTopic, updateTopic, deleteTopic} = require("../controllers/topicsController");
 
 router.get("/", authenticateToken, getAllTopics);
-router.get("/:id", authenticateToken, getTopic);
-
 router.post("/", authenticateToken, requireAdmin, createTopic);
+
+router.get("/:id", authenticateToken, getTopic);
 router.patch("/:id", authenticateToken, requireAdmin, updateTopic);
 router.delete("/:id", authenticateToken, requireAdmin, deleteTopic);
 

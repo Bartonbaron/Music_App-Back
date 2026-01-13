@@ -68,6 +68,10 @@ const createReport = async (req, res) => {
             return res.status(400).json({ message: "Invalid contentID" });
         }
 
+        if (contentType === "user" && Number(cid) === Number(actor.userID)) {
+            return res.status(400).json({ message: "You cannot report yourself" });
+        }
+
         // walidacja powodu
         const cleanedReason = typeof reason === "string" ? reason.trim() : "";
         if (!cleanedReason) {

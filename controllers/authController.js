@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 const { sequelize, models } = require('../models');
 require('dotenv').config();
 const { Op } = require("sequelize");
-const ADMIN_ROLE_ID = Number(process.env.ADMIN_ROLE_ID);
 const User = models.users;
 const Role = models.roles;
 const Library = models.library;
@@ -115,45 +114,6 @@ const logoutUser = async (req, res) => {
     return res.json({
         message: "Logged out successfully"
     });
-};
-
-const deactivateOwnAccount = async (req, res) => {
-    try {
-        const userId = req.user.id;
-
-        const user = await User.findByPk(userId);
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        // admin nie może zdezaktywować siebie
-        if (req.user.roleID === ADMIN_ROLE_ID) {
-            return res.status(400).json({
-                message: "Admin cannot deactivate own account"
-            });
-        }
-
-        if (user.status === false) {
-            return res.status(400).json({
-                message: "Account already deactivated"
-            });
-        }
-
-        user.status = false;
-        await user.save();
-
-        res.json({
-            message: "Account deactivated successfully",
-            userID: user.userID,
-            status: user.status
-        });
-
-    } catch (error) {
-        console.error("Deactivate own account error:", error);
-        res.status(500).json({
-            message: "Server error during account deactivation"
-        });
-    }
 };
 
 const promoteToCreator = async (req, res) => {
@@ -313,7 +273,6 @@ module.exports = {
     registerUser,
     loginUser,
     logoutUser,
-    deactivateOwnAccount,
     promoteToCreator,
     demoteCreator,
     getAllUsers,
