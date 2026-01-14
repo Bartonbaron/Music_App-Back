@@ -137,6 +137,7 @@ const getSong = async (req, res) => {
 // Lista utworów
 const getSongsList = async (req, res) => {
     try {
+        const limit = Math.min(parseInt(req.query.limit || "0", 10), 50); // 0 = brak limitu
         const songs = await Song.findAll({
             where: { moderationStatus: "ACTIVE" },
             include: [
@@ -148,6 +149,7 @@ const getSongsList = async (req, res) => {
                 },
             ],
             order: [["createdAt", "DESC"]],
+            ...(limit > 0 ? { limit } : {}),
         });
 
         const result = await Promise.all(
@@ -161,6 +163,7 @@ const getSongsList = async (req, res) => {
                     creatorID: song.creatorID,
                     creatorName: song.creator?.user?.userName ?? null,
                     duration: song.duration,
+                    createdAt: song.createdAt,
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };

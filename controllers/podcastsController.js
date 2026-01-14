@@ -8,6 +8,7 @@ const Podcast = models.podcasts;
 const CreatorProfile = models.creatorprofiles;
 const FavoritePodcasts = models.favoritepodcasts;
 const StreamHistory = models.streamhistory;
+const User = models.users;
 
 const BUCKET = process.env.AWS_S3_BUCKET;
 
@@ -254,7 +255,7 @@ const getMyPodcasts = async (req, res) => {
 // GET ALL PODCASTS + CREATOR DETAILS
 const getAllPodcasts = async (req, res) => {
     try {
-        const User = models.users;
+        const limit = Math.min(parseInt(req.query.limit || "0", 10), 50);
 
         const podcasts = await Podcast.findAll({
             where: { moderationStatus: "ACTIVE" },
@@ -272,7 +273,11 @@ const getAllPodcasts = async (req, res) => {
                     ],
                 },
             ],
-            order: [["releaseDate", "DESC"]],
+            order: [
+                ["releaseDate", "DESC"],
+                ["createdAt", "DESC"],
+            ],
+            ...(limit > 0 ? { limit } : {}),
         });
 
         const result = await Promise.all(

@@ -73,6 +73,23 @@ const search = async (req, res) => {
                     isPublished: true,
                     moderationStatus: "ACTIVE",
                 },
+                include: [
+                    {
+                        model: CreatorProfile,
+                        as: "creator",
+                        attributes: ["creatorID"],
+                        required: false,
+                        where: { isActive: true },
+                        include: [
+                            {
+                                model: User,
+                                as: "user",
+                                attributes: ["userID", "userName", "profilePicURL"],
+                                required: false,
+                            },
+                        ],
+                    },
+                ],
                 limit: 10,
             }),
 
@@ -82,6 +99,14 @@ const search = async (req, res) => {
                     visibility: "P",
                     moderationStatus: "ACTIVE",
                 },
+                include: [
+                    {
+                        model: User,
+                        as: "user",
+                        attributes: ["userID", "userName", "profilePicURL"],
+                        required: false,
+                    },
+                ],
                 limit: 10,
             }),
 
@@ -164,9 +189,22 @@ const search = async (req, res) => {
         const albumsOut = await Promise.all(
             (albums || []).map(async (a) => {
                 const j = a.toJSON();
+                const cu = j.creator?.user || null;
+
                 return {
                     ...j,
                     signedCover: await signMaybe(j.coverURL),
+                    creator: j.creator
+                        ? {
+                            ...j.creator,
+                            user: cu
+                                ? {
+                                    ...cu,
+                                    signedProfilePicURL: await signMaybe(cu.profilePicURL),
+                                }
+                                : null,
+                        }
+                        : null,
                 };
             })
         );
@@ -174,9 +212,17 @@ const search = async (req, res) => {
         const playlistsOut = await Promise.all(
             (playlists || []).map(async (pl) => {
                 const j = pl.toJSON();
+                const u = j.user || null;
+
                 return {
                     ...j,
                     signedCover: await signMaybe(j.coverURL),
+                    user: u
+                        ? {
+                            ...u,
+                            signedProfilePicURL: await signMaybe(u.profilePicURL),
+                        }
+                        : null,
                 };
             })
         );

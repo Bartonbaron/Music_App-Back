@@ -16,6 +16,7 @@ const PlaylistSongs = models.playlistsongs;
 const PlaylistActivity = models.playlistactivities;
 const Library = models.library;
 const LibraryPlaylists = models.libraryplaylists;
+const PlaylistCollaborator = models.playlistcollaborators;
 
 const isAdmin = (req) => Number(req.user?.roleID) === Number(process.env.ADMIN_ROLE_ID);
 
@@ -199,31 +200,58 @@ const getPlaylistActivity = async (req, res) => {
 
 const updatePlaylist = async (req, res) => {
     try {
-        const playlist = await Playlist.findByPk(req.params.id);
+        const playlistID = Number(req.params.id);
+        const userID = req.user.id;
 
-        if (!playlist)
-            return res.status(404).json({ message: "Playlist not found" });
+        const playlist = await Playlist.findByPk(playlistID);
+        if (!playlist) return res.status(404).json({ message: "Playlist not found" });
 
-        if (playlist.userID !== req.user.id)
-            return res.status(403).json({ message: "You can edit only your own playlists" });
+        const isOwner = Number(playlist.userID) === Number(userID);
+
+        // jeśli nie owner sprawdź, czy jest ACCEPTED współtwórcą
+        let isAcceptedCollab = false;
+        if (!isOwner) {
+            if (!playlist.isCollaborative) {
+                return res.status(403).json({ message: "Playlist is not collaborative" });
+            }
+
+            const collabRow = await PlaylistCollaborator.findOne({
+                where: { playlistID, userID, status: "ACCEPTED" },
+            });
+
+            isAcceptedCollab = !!collabRow;
+
+            if (!isAcceptedCollab) {
+                return res.status(403).json({ message: "You don't have permission to edit this playlist" });
+            }
+        }
 
         const { playlistName, description, visibility, isCollaborative } = req.body;
+        const patch = {};
 
-        await playlist.update({
-            ...(playlistName !== undefined && { playlistName }),
-            ...(description !== undefined && { description }),
-            ...(visibility !== undefined && { visibility }),
-            ...(isCollaborative !== undefined && { isCollaborative }),
-        });
+        if (isOwner) {
+            if (playlistName !== undefined) patch.playlistName = playlistName;
+            if (description !== undefined) patch.description = description;
+            if (visibility !== undefined) patch.visibility = visibility;
+            if (isCollaborative !== undefined) patch.isCollaborative = isCollaborative;
+        } else {
+            if (playlistName !== undefined) patch.playlistName = playlistName;
+            if (description !== undefined) patch.description = description;
 
-        res.json({
+            if (visibility !== undefined || isCollaborative !== undefined) {
+                return res.status(403).json({ message: "Only owner can change visibility/collaborative mode" });
+            }
+        }
+
+        await playlist.update(patch);
+
+        return res.json({
             message: "Playlist updated",
-            playlist
+            playlist,
         });
-
     } catch (err) {
         console.error("PATCH PLAYLIST ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
