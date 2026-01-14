@@ -17,7 +17,6 @@ var _playlists = require("./playlists");
 var _playlistsongs = require("./playlistsongs");
 var _playqueue = require("./playqueue");
 var _podcasts = require("./podcasts");
-var _recommendations = require("./recommendations");
 var _reports = require("./reports");
 var _roles = require("./roles");
 var _songs = require("./songs");
@@ -45,7 +44,6 @@ function initModels(sequelize) {
   var playlistsongs = _playlistsongs(sequelize, DataTypes);
   var playqueue = _playqueue(sequelize, DataTypes);
   var podcasts = _podcasts(sequelize, DataTypes);
-  var recommendations = _recommendations(sequelize, DataTypes);
   var reports = _reports(sequelize, DataTypes);
   var roles = _roles(sequelize, DataTypes);
   var songs = _songs(sequelize, DataTypes);
@@ -110,8 +108,6 @@ function initModels(sequelize) {
   songs.hasMany(playlistsongs, { as: "playlistsongs", foreignKey: "songID"});
   playqueue.belongsTo(songs, { as: "song", foreignKey: "songID"});
   songs.hasMany(playqueue, { as: "playqueues", foreignKey: "songID"});
-  recommendations.belongsTo(songs, { as: "song", foreignKey: "songID"});
-  songs.hasMany(recommendations, { as: "recommendations", foreignKey: "songID"});
   usersonglikes.belongsTo(songs, { as: "song", foreignKey: "songID"});
   songs.hasMany(usersonglikes, { as: "usersonglikes", foreignKey: "songID"});
   streamhistory.belongsTo(users, {as: "user", foreignKey: "userID"});
@@ -139,8 +135,6 @@ function initModels(sequelize) {
   users.hasMany(playlists, { as: "playlists", foreignKey: "userID"});
   playqueue.belongsTo(users, { as: "user", foreignKey: "userID"});
   users.hasMany(playqueue, { as: "playqueues", foreignKey: "userID"});
-  recommendations.belongsTo(users, { as: "user", foreignKey: "userID"});
-  users.hasMany(recommendations, { as: "recommendations", foreignKey: "userID"});
   reports.belongsTo(users, { as: "user", foreignKey: "userID"});
   users.hasMany(reports, { as: "reports", foreignKey: "userID"});
   usersonglikes.belongsTo(users, { as: "user", foreignKey: "userID"});
@@ -166,7 +160,6 @@ function initModels(sequelize) {
     playlistsongs,
     playqueue,
     podcasts,
-    recommendations,
     reports,
     roles,
     songs,
