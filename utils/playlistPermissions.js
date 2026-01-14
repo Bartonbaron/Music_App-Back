@@ -2,13 +2,13 @@ const canAccessPlaylist = async (playlist, userID, models) => {
     const uid = Number(userID);
     if (!playlist || !Number.isFinite(uid)) return false;
 
-    // publiczna
+    // Publiczna
     if (playlist.visibility === "P") return true;
 
-    // owner
+    // Właściciel
     if (Number(playlist.userID) === uid) return true;
 
-    // private, ale zaakceptowany współtwórca może wejść
+    // Prywatny, ale zaakceptowany współtwórca może wejść
     const PC = models?.playlistcollaborators;
     if (!PC) return false;
 
@@ -23,13 +23,13 @@ const canEditPlaylist = async (playlist, userID, models) => {
     const uid = Number(userID);
     if (!playlist || !Number.isFinite(uid)) return false;
 
-    // owner
+    // Właściciel
     if (Number(playlist.userID) === uid) return true;
 
-    // jeśli tryb współtworzenia wyłączony – nikt poza ownerem
+    // Jeśli tryb współtworzenia wyłączony – nikt poza właścicielem
     if (playlist.isCollaborative !== true) return false;
 
-    // włączony: tylko ACCEPTED collaborator
+    // Włączony: tylko zaakceptowany współtwórca
     const PC = models?.playlistcollaborators;
     if (!PC) return false;
 

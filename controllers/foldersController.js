@@ -1,8 +1,27 @@
 const { models } = require("../models");
+const { canEditPlaylist } = require("../utils/playlistPermissions");
+const { generateSignedUrl } = require("../config/s3");
+const extractKey = require("../utils/extractKey");
 
 const Folder = models.folders;
 const FolderPlaylists = models.folderplaylists;
 const Playlist = models.playlists;
+
+// Helper: podpisz cover playlisty (jeśli jest)
+async function signPlaylistCover(playlistJson) {
+    try {
+        const coverURL = playlistJson?.coverURL || null;
+        if (!coverURL) return { ...playlistJson, signedCover: null };
+
+        const key = extractKey(coverURL);
+        if (!key) return { ...playlistJson, signedCover: null };
+
+        const signedCover = await generateSignedUrl(key);
+        return { ...playlistJson, signedCover };
+    } catch (_) {
+        return { ...playlistJson, signedCover: null };
+    }
+}
 
 const getFolder = async (req, res) => {
     try {
@@ -84,7 +103,7 @@ const deleteFolder = async (req, res) => {
             return res.status(404).json({ message: "Folder not found" });
         }
 
-        await folder.destroy(); // CASCADE usunie folderplaylists
+        await folder.destroy();
 
         res.json({ message: "Folder deleted" });
     } catch (err) {
@@ -101,15 +120,46 @@ const getFolderPlaylists = async (req, res) => {
             return res.status(404).json({ message: "Folder not found" });
         }
 
-        const playlists = await FolderPlaylists.findAll({
+        const rows = await FolderPlaylists.findAll({
             where: { folderID: folder.folderID },
-            include: [{ model: Playlist, as: "playlist" }]
+            include: [
+                {
+                    model: Playlist,
+                    as: "playlist",
+                    attributes: ["playlistID", "playlistName", "coverURL", "userID", "visibility", "createdAt"]
+                },
+            ],
+            order: [
+                ["playlistID", "ASC"],
+            ],
         });
 
-        res.json(playlists);
+        const presented = await Promise.all(
+            rows.map(async (r) => {
+                const rowJson = r.toJSON();
+
+                if (!rowJson.playlist) {
+                    return {
+                        folderID: rowJson.folderID,
+                        playlistID: rowJson.playlistID,
+                        playlist: null,
+                    };
+                }
+
+                const playlistSigned = await signPlaylistCover(rowJson.playlist);
+
+                return {
+                    folderID: rowJson.folderID,
+                    playlistID: rowJson.playlistID,
+                    playlist: playlistSigned,
+                };
+            })
+        );
+
+        return res.json(presented);
     } catch (err) {
         console.error("GET FOLDER PLAYLISTS ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -122,13 +172,24 @@ const addPlaylistToFolder = async (req, res) => {
             return res.status(404).json({ message: "Folder not found" });
         }
 
-        const playlist = await Playlist.findByPk(playlistID);
-        if (!playlist || playlist.userID !== req.user.id) {
+        const pid = Number(playlistID);
+        if (!Number.isFinite(pid) || pid <= 0) {
+            return res.status(400).json({ message: "Invalid playlistID" });
+        }
+
+        const playlist = await Playlist.findByPk(pid);
+        if (!playlist) {
+            return res.status(404).json({ message: "Playlist not found" });
+        }
+
+        // Właściciel albo zaakceptowany współtwórca
+        const canEdit = await canEditPlaylist(playlist, req.user.id, models);
+        if (!canEdit) {
             return res.status(403).json({ message: "Not authorized" });
         }
 
         const exists = await FolderPlaylists.findOne({
-            where: { folderID: folder.folderID, playlistID }
+            where: { folderID: folder.folderID, playlistID: pid },
         });
 
         if (exists) {
@@ -137,7 +198,7 @@ const addPlaylistToFolder = async (req, res) => {
 
         await FolderPlaylists.create({
             folderID: folder.folderID,
-            playlistID
+            playlistID: pid,
         });
 
         res.json({ message: "Playlist added to folder" });

@@ -6,16 +6,15 @@ const { getFolder, getFolders, createFolder, renameFolder, deleteFolder,
 
 const router = express.Router();
 
-router.get("/:id", authenticateToken, getFolder);
 router.get("/", authenticateToken, getFolders);
-router.get("/:id/playlists", authenticateToken, getFolderPlaylists);
-
-router.post("/:id/playlists", authenticateToken, addPlaylistToFolder);
 router.post("/", authenticateToken, createFolder);
 
+router.get("/:id", authenticateToken, getFolder);
 router.patch("/:id", authenticateToken, renameFolder);
-
 router.delete("/:id", authenticateToken, deleteFolder);
+
+router.get("/:id/playlists", authenticateToken, getFolderPlaylists);
+router.post("/:id/playlists", authenticateToken, addPlaylistToFolder);
 router.delete("/:id/playlists/:playlistID", authenticateToken, removePlaylistFromFolder);
 
 module.exports = router;
