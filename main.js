@@ -27,6 +27,7 @@ const foldersRoutes = require("./routes/foldersRoutes");
 const playHistoryRoutes = require("./routes/playHistoryRoutes");
 const playQueueRoutes = require("./routes/playQueueRoutes");
 const usersRoutes = require("./routes/usersRoutes");
+const feedRoutes = require("./routes/feedRoutes");
 
 // Global Middleware
 app.use(express.json());
@@ -51,6 +52,7 @@ app.use("/api/folders", foldersRoutes);
 app.use("/api/playhistory", playHistoryRoutes);
 app.use("/api/queue", playQueueRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/feed", feedRoutes);
 
 app.listen(port, () => {
     console.log(`Server is listening on port ${port}...`);

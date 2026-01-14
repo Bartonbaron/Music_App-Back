@@ -70,6 +70,5 @@ const requireCreator = async (req, res, next) => {
     }
 };
 
-
 module.exports = { authenticateToken, requireAdmin, requireCreator };
 

@@ -1,8 +1,9 @@
 const { Op } = require("sequelize");
-const { models } = require("../models");
+const { models, sequelize } = require("../models");
 
 const User = models.users;
 const Role = models.roles;
+const Creator = models.creatorprofiles;
 
 const parseIntSafe = (v, fallback = null) => {
     const n = Number.parseInt(String(v), 10);
@@ -13,7 +14,7 @@ const parseLimitOffset = (req) => {
     const limitRaw = parseIntSafe(req.query.limit, 50);
     const offsetRaw = parseIntSafe(req.query.offset, 0);
 
-    const limit = Math.min(Math.max(limitRaw || 50, 1), 200); // 1..200
+    const limit = Math.min(Math.max(limitRaw || 50, 1), 200);
     const offset = Math.max(offsetRaw || 0, 0);
 
     return { limit, offset };
@@ -54,7 +55,6 @@ const getAdminUsers = async (req, res) => {
         if (query) {
             const maybeId = parseIntSafe(query, null);
 
-            // email jest nullable -> LIKE na null nic nie da, ale to ok
             where[Op.or] = [
                 { userName: { [Op.like]: `%${query}%` } },
                 { email: { [Op.like]: `%${query}%` } },
@@ -116,7 +116,142 @@ const getAdminUser = async (req, res) => {
     }
 };
 
+const promoteToCreator = async (req, res) => {
+    const transaction = await sequelize.transaction();
+    try {
+        const userId = req.params.id;
+
+        const user = await User.findByPk(userId, { transaction });
+        if (!user) {
+            await transaction.rollback();
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        // Blokada: nie zmieniaj roli admina i nie zmieniaj siebie
+        const adminRole = await Role.findOne({ where: { roleName: "Admin" }, transaction });
+        if (adminRole && Number(user.roleID) === Number(adminRole.roleID)) {
+            await transaction.rollback();
+            return res.status(403).json({ message: "Cannot change role of an Admin" });
+        }
+
+        // Blokada na self-change
+        const actorId = Number(req.user?.userID ?? req.user?.id);
+        if (Number(actorId) === Number(userId)) {
+            await transaction.rollback();
+            return res.status(403).json({ message: "You cannot change your own role" });
+        }
+
+        const creatorRole = await Role.findOne({
+            where: { roleName: "Creator" },
+            transaction
+        });
+
+        if (user.roleID === creatorRole.roleID) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "User is already a Creator"
+            });
+        }
+
+        // Zmiana roli
+        user.roleID = creatorRole.roleID;
+        await user.save({ transaction });
+
+        const [profile, created] = await Creator.findOrCreate({
+            where: { userID: userId },
+            defaults: {
+                bio: null,
+                numberOfFollowers: 0,
+                isActive: true
+            },
+            transaction
+        });
+
+        if (!created && profile.isActive === false) {
+            profile.isActive = true;
+            await profile.save({ transaction });
+        }
+
+        await transaction.commit();
+
+        res.json({
+            message: "User promoted to Creator",
+            userID: userId
+        });
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error("PROMOTE ERROR:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
+const demoteCreator = async (req, res) => {
+    const transaction = await sequelize.transaction();
+    try {
+        const userId = req.params.id;
+
+        const user = await User.findByPk(userId, {
+            include: { model: Role, as: "role" },
+            transaction
+        });
+
+        const adminRole = await Role.findOne({ where: { roleName: "Admin" }, transaction });
+        if (adminRole && Number(user?.roleID) === Number(adminRole.roleID)) {
+            await transaction.rollback();
+            return res.status(403).json({ message: "Cannot change role of an Admin" });
+        }
+
+        const actorId = Number(req.user?.userID ?? req.user?.id);
+        if (Number(actorId) === Number(userId)) {
+            await transaction.rollback();
+            return res.status(403).json({ message: "You cannot change your own role" });
+        }
+
+        if (!user || user.role.roleName !== "Creator") {
+            await transaction.rollback();
+            return res.status(400).json({
+                message: "User is not a Creator"
+            });
+        }
+
+        const userRole = await Role.findOne({
+            where: { roleName: "User" },
+            transaction
+        });
+
+        // Dezaktywuj twórcę
+        const profile = await Creator.findOne({
+            where: { userID: userId },
+            transaction
+        });
+
+        if (profile) {
+            profile.isActive = false;
+            await profile.save({ transaction });
+        }
+
+        // Zmiana roli
+        user.roleID = userRole.roleID;
+        await user.save({ transaction });
+
+        await transaction.commit();
+
+        res.json({
+            message: "Creator demoted (content preserved)",
+            userID: userId
+        });
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error("DEMOTE ERROR:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
     getAdminUsers,
-    getAdminUser
+    getAdminUser,
+    promoteToCreator,
+    demoteCreator
 };

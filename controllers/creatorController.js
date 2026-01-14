@@ -1,4 +1,5 @@
 const { sequelize, models } = require("../models");
+const {Op} = require("sequelize");
 const Creator = models.creatorprofiles;
 const User = models.users;
 const Song = models.songs;
@@ -437,10 +438,72 @@ const toggleFollowCreator = async (req, res) => {
     }
 };
 
+// GET /creators/me/followers/stats
+const getMyFollowersStats = async (req, res) => {
+    try {
+        const userID = Number(req.user?.id ?? req.user?.userID);
+        if (!Number.isFinite(userID) || userID <= 0) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        const creator = await Creator.findOne({ where: { userID } });
+        if (!creator || creator.isActive === false) {
+            return res.status(404).json({ message: "Creator profile not found" });
+        }
+
+        const creatorID = creator.creatorID;
+
+        const now = new Date();
+        const since7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const since30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        const [followersTotal, followersLast7Days, followersLast30Days] = await Promise.all([
+            Followers.count({ where: { creatorID } }),
+            Followers.count({ where: { creatorID, followedAt: { [Op.gte]: since7 } } }),
+            Followers.count({ where: { creatorID, followedAt: { [Op.gte]: since30 } } }),
+        ]);
+
+        // seria dzienna z ostatnich 30 dni
+        const dailyRaw = await Followers.findAll({
+            where: { creatorID, followedAt: { [Op.gte]: since30 } },
+            attributes: [
+                [sequelize.fn("DATE", sequelize.col("followedAt")), "day"],
+                [sequelize.fn("COUNT", sequelize.col("followerID")), "count"],
+            ],
+            group: [sequelize.fn("DATE", sequelize.col("followedAt"))],
+            order: [[sequelize.fn("DATE", sequelize.col("followedAt")), "ASC"]],
+            raw: true,
+        });
+
+        // map -> {date, count}
+        const daily = dailyRaw.map((r) => ({
+            date: String(r.day), // "YYYY-MM-DD"
+            count: Number(r.count || 0),
+        }));
+
+        // informacyjnie porównanie z licznikiem w creatorprofiles
+        const cachedCount = Number(creator.numberOfFollowers || 0);
+
+        return res.json({
+            creatorID,
+            followersTotal,
+            followersLast7Days,
+            followersLast30Days,
+            dailyLast30Days: daily,
+            cachedCount,
+            cachedDiff: followersTotal - cachedCount,
+        });
+    } catch (err) {
+        console.error("GET FOLLOWERS STATS ERROR:", err);
+        return res.status(500).json({ message: "Server error" });
+    }
+};
+
 module.exports = {
     getCreatorProfile,
     getMyCreatorProfile,
     updateMyCreatorProfile,
     updateCreatorProfile,
-    toggleFollowCreator
+    toggleFollowCreator,
+    getMyFollowersStats
 }

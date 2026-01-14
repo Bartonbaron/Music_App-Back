@@ -6,7 +6,6 @@ const { Op } = require("sequelize");
 const User = models.users;
 const Role = models.roles;
 const Library = models.library;
-const CreatorProfile = models.creatorprofiles;
 
 const { validatePassword } = require('../utils/validatePassword');
 
@@ -116,115 +115,6 @@ const logoutUser = async (req, res) => {
     });
 };
 
-const promoteToCreator = async (req, res) => {
-    const transaction = await sequelize.transaction();
-    try {
-        const userId = req.params.id;
-
-        const user = await User.findByPk(userId, { transaction });
-        if (!user) {
-            await transaction.rollback();
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        const creatorRole = await Role.findOne({
-            where: { roleName: "Creator" },
-            transaction
-        });
-
-        if (user.roleID === creatorRole.roleID) {
-            await transaction.rollback();
-            return res.status(400).json({
-                message: "User is already a Creator"
-            });
-        }
-
-        // zmiana roli
-        user.roleID = creatorRole.roleID;
-        await user.save({ transaction });
-
-        // creatorProfile
-        const [profile, created] = await CreatorProfile.findOrCreate({
-            where: { userID: userId },
-            defaults: {
-                bio: null,
-                numberOfFollowers: 0,
-                isActive: true
-            },
-            transaction
-        });
-
-        if (!created && profile.isActive === false) {
-            profile.isActive = true;
-            await profile.save({ transaction });
-        }
-
-        await transaction.commit();
-
-        res.json({
-            message: "User promoted to Creator",
-            userID: userId
-        });
-
-    } catch (err) {
-        await transaction.rollback();
-        console.error("PROMOTE ERROR:", err);
-        res.status(500).json({ message: "Server error" });
-    }
-};
-
-const demoteCreator = async (req, res) => {
-    const transaction = await sequelize.transaction();
-    try {
-        const userId = req.params.id;
-
-        const user = await User.findByPk(userId, {
-            include: { model: Role, as: "role" },
-            transaction
-        });
-
-        if (!user || user.role.roleName !== "Creator") {
-            await transaction.rollback();
-            return res.status(400).json({
-                message: "User is not a Creator"
-            });
-        }
-
-        const userRole = await Role.findOne({
-            where: { roleName: "User" },
-            transaction
-        });
-
-        // dezaktywuj twórcę
-        const profile = await CreatorProfile.findOne({
-            where: { userID: userId },
-            transaction
-        });
-
-        if (profile) {
-            profile.isActive = false;
-            await profile.save({ transaction });
-        }
-
-        // zmień rolę
-        user.roleID = userRole.roleID;
-        await user.save({ transaction });
-
-        await transaction.commit();
-
-        res.json({
-            message: "Creator demoted (content preserved)",
-            userID: userId
-        });
-
-    } catch (err) {
-        await transaction.rollback();
-        console.error("DEMOTE ERROR:", err);
-        res.status(500).json({ message: "Server error" });
-    }
-};
-
-
 const getAllCreators = async (req, res) => {
     try {
         const creators = await models.users.findAll({
@@ -273,8 +163,6 @@ module.exports = {
     registerUser,
     loginUser,
     logoutUser,
-    promoteToCreator,
-    demoteCreator,
     getAllUsers,
     getAllCreators
 };

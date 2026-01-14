@@ -102,9 +102,7 @@ const getAllAlbums = async (req, res) => {
     }
 };
 
-// =====================================================
 // GET /albums/my (creator: wszystkie moje, także unpublished/hidden)
-// =====================================================
 const getMyAlbums = async (req, res) => {
     try {
         const userID = getReqUserID(req);
