@@ -48,7 +48,7 @@ const getCreatorProfile = async (req, res) => {
         // songs
         const songs = await Song.findAll({
             where: { creatorID: creator.creatorID },
-            attributes: ["songID", "songName", "duration", "coverURL", "fileURL", "createdAt"],
+            attributes: ["songID", "songName", "duration", "coverURL", "fileURL", "createdAt", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -61,6 +61,7 @@ const getCreatorProfile = async (req, res) => {
                     songID: s.songID,
                     songName: s.songName,
                     duration: s.duration,
+                    moderationStatus: s.moderationStatus,
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                     createdAt: s.createdAt,
@@ -70,7 +71,7 @@ const getCreatorProfile = async (req, res) => {
 
         const albums = await Album.findAll({
             where: { creatorID: creator.creatorID, isPublished: true },
-            attributes: ["albumID", "albumName", "coverURL", "createdAt"],
+            attributes: ["albumID", "albumName", "coverURL", "createdAt", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -81,6 +82,7 @@ const getCreatorProfile = async (req, res) => {
                     albumID: a.albumID,
                     albumName: a.albumName,
                     createdAt: a.createdAt,
+                    moderationStatus: a.moderationStatus,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };
             })
@@ -88,7 +90,7 @@ const getCreatorProfile = async (req, res) => {
 
         const podcasts = await Podcast.findAll({
             where: { creatorID: creator.creatorID },
-            attributes: ["podcastID", "podcastName", "coverURL", "fileURL", "duration", "createdAt"],
+            attributes: ["podcastID", "podcastName", "coverURL", "fileURL", "duration", "createdAt", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -102,6 +104,7 @@ const getCreatorProfile = async (req, res) => {
                     podcastName: p.podcastName,
                     duration: p.duration ?? null,
                     createdAt: p.createdAt,
+                    moderationStatus: p.moderationStatus,
 
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
@@ -112,7 +115,7 @@ const getCreatorProfile = async (req, res) => {
 
         const playlists = await Playlist.findAll({
             where: { userID: creator.userID, visibility: "P" },
-            attributes: ["playlistID", "playlistName", "coverURL", "createdAt", "description"],
+            attributes: ["playlistID", "playlistName", "coverURL", "createdAt", "description", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -129,6 +132,7 @@ const getCreatorProfile = async (req, res) => {
                     playlistName: pl.playlistName,
                     description: pl.description ?? null,
                     createdAt: pl.createdAt,
+                    moderationStaus: pl.moderationStatus,
                     songsCount,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };
@@ -184,7 +188,7 @@ const getMyCreatorProfile = async (req, res) => {
         // Albums
         const albums = await Album.findAll({
             where: { creatorID: creator.creatorID },
-            attributes: ["albumID", "albumName", "coverURL", "createdAt"],
+            attributes: ["albumID", "albumName", "coverURL", "createdAt", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -194,6 +198,7 @@ const getMyCreatorProfile = async (req, res) => {
                 return {
                     albumID: a.albumID,
                     albumName: a.albumName,
+                    moderationStatus: a.moderationStatus,
                     createdAt: a.createdAt,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };
@@ -202,8 +207,21 @@ const getMyCreatorProfile = async (req, res) => {
 
         // Songs
         const songs = await Song.findAll({
-            where: { creatorID: creator.creatorID },
-            attributes: ["songID", "songName", "description", "genreID", "duration", "coverURL", "fileURL", "createdAt"],
+            where: {
+                creatorID: creator.creatorID,
+                moderationStatus: { [Op.in]: ["ACTIVE", "HIDDEN"] },
+            },
+            attributes: [
+                "songID",
+                "songName",
+                "description",
+                "genreID",
+                "duration",
+                "coverURL",
+                "fileURL",
+                "createdAt",
+                "moderationStatus",
+            ],
             include: [
                 {
                     model: Genre,
@@ -220,6 +238,8 @@ const getMyCreatorProfile = async (req, res) => {
                 const audioKey = s.fileURL ? extractKey(s.fileURL) : null;
                 const coverKey = s.coverURL ? extractKey(s.coverURL) : null;
 
+                const isHidden = s.moderationStatus === "HIDDEN" || !!s.isHidden;
+
                 return {
                     songID: s.songID,
                     songName: s.songName,
@@ -227,13 +247,12 @@ const getMyCreatorProfile = async (req, res) => {
                     duration: s.duration,
                     genreID: s.genreID,
                     genre: s.genre
-                        ? {
-                            genreID: s.genre.genreID,
-                            genreName: s.genre.genreName,
-                        }
+                        ? { genreID: s.genre.genreID, genreName: s.genre.genreName }
                         : null,
 
-                    signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
+                    moderationStatus: s.moderationStatus,
+
+                    signedAudio: !isHidden && audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                     createdAt: s.createdAt,
                 };
@@ -243,7 +262,7 @@ const getMyCreatorProfile = async (req, res) => {
         // Podcasty
         const podcasts = await Podcast.findAll({
             where: { creatorID: creator.creatorID },
-            attributes: ["podcastID", "podcastName", "coverURL", "createdAt", "fileURL", "duration"],
+            attributes: ["podcastID", "podcastName", "coverURL", "createdAt", "fileURL", "duration", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -256,6 +275,7 @@ const getMyCreatorProfile = async (req, res) => {
                     podcastID: p.podcastID,
                     podcastName: p.podcastName,
                     duration: p.duration ?? null,
+                    moderationStatus: p.moderationStatus,
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                     createdAt: p.createdAt,
@@ -265,7 +285,7 @@ const getMyCreatorProfile = async (req, res) => {
 
         const playlists = await Playlist.findAll({
             where: { userID: creator.userID},
-            attributes: ["playlistID", "playlistName", "coverURL", "createdAt", "description"],
+            attributes: ["playlistID", "playlistName", "coverURL", "createdAt", "description", "moderationStatus"],
             order: [["createdAt", "DESC"]],
         });
 
@@ -282,6 +302,7 @@ const getMyCreatorProfile = async (req, res) => {
                     playlistName: pl.playlistName,
                     description: pl.description ?? null,
                     createdAt: pl.createdAt,
+                    moderationStatus: pl.moderationStatus,
                     songsCount,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };

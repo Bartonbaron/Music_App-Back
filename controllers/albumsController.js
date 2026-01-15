@@ -1,9 +1,14 @@
 require("dotenv").config();
 const { models, sequelize } = require("../models");
 const { Op } = require("sequelize");
+const { s3 } = require("../config/s3");
+const { DeleteObjectsCommand } = require("@aws-sdk/client-s3");
+
+const BUCKET = process.env.AWS_S3_BUCKET;
 
 const { generateSignedUrl } = require("../config/s3");
 const extractKey = require("../utils/extractKey");
+const uploadCover = require("../utils/uploadCover");
 
 const Album = models.albums;
 const Song = models.songs;
@@ -43,6 +48,14 @@ const canSeeUnpublishedOrHiddenAlbum = async (album, req) => {
     return Number(creator.creatorID) === Number(album.creatorID);
 };
 
+function computeIsPublished(releaseDate) {
+    if (!releaseDate) return true;
+    const now = new Date();
+    const release = new Date(releaseDate);
+    if (Number.isNaN(release.getTime())) return true; // albo false + walidacja
+    return release.getTime() <= now.getTime();
+}
+
 const signCover = async (coverURL) => {
     if (!coverURL) return null;
     try {
@@ -61,9 +74,7 @@ const signAudio = async (fileURL) => {
     }
 };
 
-// =====================================================
 // GET /albums (publiczne: tylko published + ACTIVE)
-// =====================================================
 const getAllAlbums = async (req, res) => {
     try {
         const albums = await Album.findAll({
@@ -172,8 +183,8 @@ const getAlbum = async (req, res) => {
 
         if (!album.isPublished && !privileged) {
             return res.status(403).json({
-                message: "Album will be released on",
                 releaseDate: album.releaseDate,
+                message: `Album will be released on ${album.releaseDate}`,
             });
         }
 
@@ -386,26 +397,33 @@ const updateAlbum = async (req, res) => {
         }
 
         const creator = await CreatorProfile.findOne({
-            where: { userID: req.user.id }
+            where: { userID: req.user.id },
         });
 
         if (!creator || creator.creatorID !== album.creatorID) {
             return res.status(403).json({ message: "Not authorized" });
         }
 
-        const { albumName, description, releaseDate } = req.body;
+        const { albumName, description, releaseDate, genreID } = req.body;
+
+        // releaseDate docelowe (po update)
+        const nextReleaseDate =
+            releaseDate !== undefined ? (releaseDate ? releaseDate : null) : album.releaseDate;
+
+        const nextIsPublished = computeIsPublished(nextReleaseDate);
 
         await album.update({
-            albumName: albumName ?? album.albumName,
-            description: description ?? album.description,
-            releaseDate: releaseDate ?? album.releaseDate
+            ...(albumName !== undefined && { albumName }),
+            ...(description !== undefined && { description: description || null }),
+            ...(genreID !== undefined && { genreID }),
+            ...(releaseDate !== undefined && { releaseDate: nextReleaseDate }),
+            isPublished: nextIsPublished,
         });
 
-        res.json({ message: "Album updated", album });
-
+        return res.json({ message: "Album updated", album });
     } catch (err) {
         console.error("UPDATE ALBUM ERROR:", err);
-        res.status(500).json({ message: "Server error" });
+        return res.status(500).json({ message: "Server error" });
     }
 };
 
@@ -729,46 +747,41 @@ const deleteAlbumCover = async (req, res) => {
 
 const publishAlbum = async (req, res) => {
     const t = await sequelize.transaction();
-
     try {
         const { albumName, description, releaseDate, genreID, tracks } = req.body;
         const creatorID = req.user.creatorID;
 
-        // Walidacje podstawowe
         if (!albumName || !genreID) {
             await t.rollback();
-            return res.status(400).json({
-                message: "albumName and genreID are required"
-            });
+            return res.status(400).json({ message: "albumName and genreID are required" });
         }
 
         if (!Array.isArray(tracks) || tracks.length === 0) {
             await t.rollback();
-            return res.status(400).json({
-                message: "Album must contain at least one track"
-            });
+            return res.status(400).json({ message: "Album must contain at least one track" });
         }
 
-        // Sprawdzenie duplikatów trackNumber
-        const trackNumbers = tracks.map(t => t.trackNumber);
-        const uniqueTrackNumbers = new Set(trackNumbers);
-        if (trackNumbers.length !== uniqueTrackNumbers.size) {
+        const trackNumbers = tracks.map((x) => x.trackNumber);
+        const unique = new Set(trackNumbers);
+        if (trackNumbers.length !== unique.size) {
             await t.rollback();
-            return res.status(400).json({
-                message: "Duplicate track numbers are not allowed"
-            });
+            return res.status(400).json({ message: "Duplicate track numbers are not allowed" });
         }
 
-        // Utwórz album
-        const album = await Album.create({
-            albumName,
-            description: description || null,
-            releaseDate: releaseDate || null,
-            genreID,
-            creatorID,
-            isPublished: true,
-            moderationStatus: "ACTIVE"
-        }, { transaction: t });
+        const isPublished = computeIsPublished(releaseDate);
+
+        const album = await Album.create(
+            {
+                albumName,
+                description: description || null,
+                releaseDate: releaseDate || null,
+                genreID,
+                creatorID,
+                isPublished,
+                moderationStatus: "ACTIVE",
+            },
+            { transaction: t }
+        );
 
         // Pobierz wszystkie utwory
         const songIDs = tracks.map(t => t.songID);
@@ -806,17 +819,16 @@ const publishAlbum = async (req, res) => {
 
         await t.commit();
 
-        res.status(201).json({
+        return res.status(201).json({
             message: "Album published successfully",
-            albumID: album.albumID
+            albumID: album.albumID,
+            isPublished: album.isPublished,
+            releaseDate: album.releaseDate,
         });
-
     } catch (err) {
         await t.rollback();
         console.error("PUBLISH ALBUM ERROR:", err);
-        res.status(500).json({
-            message: "Server error while publishing album"
-        });
+        return res.status(500).json({ message: "Server error while publishing album" });
     }
 };
 

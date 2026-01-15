@@ -2,6 +2,9 @@ const express = require('express');
 require('dotenv').config();
 const cors = require('cors');
 
+const { sequelize } = require("./models");
+const { startPublishAlbumsJob } = require("./publishAlbums.job");
+
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -56,6 +59,18 @@ app.use("/api/users", usersRoutes);
 app.use("/api/feed", feedRoutes);
 app.use("/api/home", homeRoutes);
 
-app.listen(port, () => {
-    console.log(`Server is listening on port ${port}...`);
-});
+(async () => {
+    try {
+        await sequelize.authenticate();
+        console.log("Connected to MySQL database");
+
+        startPublishAlbumsJob();
+
+        app.listen(port, () => {
+            console.log(`Server listening on port ${port}`);
+        });
+    } catch (err) {
+        console.error("SERVER START ERROR:", err);
+        process.exit(1);
+    }
+})();

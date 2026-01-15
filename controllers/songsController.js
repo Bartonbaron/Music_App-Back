@@ -137,7 +137,6 @@ const getSong = async (req, res) => {
 // Lista utworów
 const getSongsList = async (req, res) => {
     try {
-        const limit = Math.min(parseInt(req.query.limit || "0", 10), 50); // 0 = brak limitu
         const songs = await Song.findAll({
             where: { moderationStatus: "ACTIVE" },
             include: [
@@ -149,7 +148,6 @@ const getSongsList = async (req, res) => {
                 },
             ],
             order: [["createdAt", "DESC"]],
-            ...(limit > 0 ? { limit } : {}),
         });
 
         const result = await Promise.all(
@@ -163,7 +161,6 @@ const getSongsList = async (req, res) => {
                     creatorID: song.creatorID,
                     creatorName: song.creator?.user?.userName ?? null,
                     duration: song.duration,
-                    createdAt: song.createdAt,
                     signedAudio: audioKey ? await generateSignedUrl(audioKey) : null,
                     signedCover: coverKey ? await generateSignedUrl(coverKey) : null,
                 };
@@ -481,11 +478,6 @@ const deleteSong = async (req, res) => {
 
         await song.destroy();
 
-        const count = await Song.count();
-        if (count === 0) {
-            await Song.sequelize.query("ALTER TABLE songs AUTO_INCREMENT = 1;");
-        }
-
         return res.json({
             message: "Song deleted",
             deletedFiles: objectsToDelete.map(x => x.Key),
@@ -583,12 +575,6 @@ const unlikeSong = async (req, res) => {
 
         // Usuwanie z ulubionych (favorites)
         await FavoriteSongs.destroy({ where: { userID, songID: id } });
-
-        // Jeśli po usunięciu tabela jest pusta -> reset AUTO_INCREMENT
-        const count = await FavoriteSongs.count();
-        if (count === 0) {
-            await sequelize.query("ALTER TABLE favoriteSongs AUTO_INCREMENT = 1");
-        }
 
         return res.json({ message: "Song unliked", likeCount: song.likeCount });
 
