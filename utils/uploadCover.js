@@ -5,7 +5,7 @@ const BUCKET = process.env.AWS_S3_BUCKET;
 
 const uploadCover = async ({file, oldURL, folder, filename, contentType}) => {
     if (!file) {
-        throw new Error("Cover file is required");
+        throw new Error("Plik okładki jest wymagany");
     }
 
     // usuń stary cover
